@@ -1,7 +1,8 @@
 // ==UserScript==
-// @name         WME Simplify Street Geometry
-// @version      2019.08.09.001
-// @description  Flatten selected segment(s) into a perfectly straight line.
+// @name         WME Simplify Street Geometry (beta)
+// @namespace   https://greasyfork.org/users/166843
+// @version      2019.08.09.01
+// @description  Flatten selected segments into a perfectly straight line.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
 // @require     https://greasyfork.org/scripts/24851-wazewrap/code/WazeWrap.js
@@ -18,7 +19,7 @@ const ALERT_UPDATE = true,
     LOAD_BEGIN_TIME = performance.now(),
     // SCRIPT_AUTHOR = GM_info.script.author,
     SCRIPT_FORUM_URL = '',
-    SCRIPT_GF_URL = '',
+    SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-simplify-street-geometry',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
     SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.'],
