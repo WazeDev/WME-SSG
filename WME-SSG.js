@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Simplify Street Geometry (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.09.01
+// @version      2019.08.09.02
 // @description  Flatten selected segments into a perfectly straight line.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,7 +22,9 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-simplify-street-geometry',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.'],
+    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.',
+        '<b>NEW:</b> Check for micro dog legs.',
+        '<b>NEW:</b> Restrict to rank 3+.'],
     SETTINGS_STORE_NAME = 'WMESSG',
     _timeouts = { bootstrap: undefined };
 let _moveNode,
@@ -150,7 +152,38 @@ function checkNameContinuity(selectedFeatures) {
     return true;
 }
 
-function doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflictingNamesContinue) {
+function distanceBetweenPointsInKM(lon1, lat1, lon2, lat2) {
+    lon1 *= 0.017453292519943295; // 0.017453292519943295 = Math.PI / 180
+    lat1 *= 0.017453292519943295;
+    lon2 *= 0.017453292519943295;
+    lat2 *= 0.017453292519943295;
+    // 12742 = Diam of earth in km (2 * 6371)
+    return 12742 * Math.asin(Math.sqrt(((1 - Math.cos(lat2 - lat1)) + (1 - Math.cos(lon2 - lon1)) * Math.cos(lat1) * Math.cos(lat2)) / 2));
+}
+
+function checkForMicroDogLegs(selectedFeatures) {
+    for (let idx = 0; idx < selectedFeatures.length; idx++) {
+        if (selectedFeatures[idx].geometry.components.length > 2) {
+            const fromNode = W.model.nodes.getObjectById(selectedFeatures[idx].model.attributes.fromNodeID),
+                toNode = W.model.nodes.getObjectById(selectedFeatures[idx].model.attributes.toNodeID);
+            for (let idx2 = 0; idx2 < selectedFeatures[idx].geometry.components.length; idx2++) {
+                const fromNode4326 = WazeWrap.Geometry.ConvertTo4326(fromNode.geometry.x, fromNode.geometry.y),
+                    toNode4326 = WazeWrap.Geometry.ConvertTo4326(toNode.geometry.x, toNode.geometry.y),
+                    testNode4326 = WazeWrap.Geometry.ConvertTo4326(selectedFeatures[idx].geometry.components[idx2].x, selectedFeatures[idx].geometry.components[idx2].y);
+                if (((testNode4326.lon === fromNode4326.lon) && (testNode4326.lat === fromNode4326.lat)) || ((testNode4326.lon === toNode4326.lon) && (testNode4326.lat === toNode4326.lat)))
+                    // eslint-disable-next-line no-continue
+                    continue;
+                if ((distanceBetweenPointsInKM(fromNode4326.lon, fromNode4326.lat, testNode4326.lon, testNode4326.lat) * 1000) < 2)
+                    return true;
+                if ((distanceBetweenPointsInKM(toNode4326.lon, toNode4326.lat, testNode4326.lon, testNode4326.lat) * 1000) < 2)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+function doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue) {
     const numSelectedFeatures = W.selectionManager.getSelectedFeatures().length;
     if (numSelectedFeatures > 1) {
         const selectedFeatures = W.selectionManager.getSelectedFeatures();
@@ -199,6 +232,16 @@ function doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflic
                 );
             }
             conflictingNamesContinue = true;
+        }
+        if (!microDogLegsContinue && (checkForMicroDogLegs(selectedFeatures) === true)) {
+            return WazeWrap.Alerts.confirm(
+                SCRIPT_NAME,
+                I18n.t('wmessg.prompts.MicroDogLegsConfirm'),
+                () => { doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true); },
+                () => { },
+                I18n.t('wmessg.common.Yes'),
+                I18n.t('wmessg.common.No')
+            );
         }
         let t1,
             t2,
@@ -331,10 +374,12 @@ function loadTranslations() {
     return new Promise(resolve => {
         const translations = {
                 en: {
-                    SimplifyGeometry: 'Simplify Geometry',
+                    SimplifyGeometry: 'Simplify geometry',
                     SimplifyGeometryTitle: 'Click here to flatten the selected segments into a straight line.',
                     common: {
+                        Help: 'Help',
                         No: 'No',
+                        Note: 'Note',
                         NothingMajor: 'Nothing major.',
                         WhatsNew: 'What\'s new',
                         Yes: 'Yes'
@@ -345,6 +390,13 @@ function loadTranslations() {
                         NonContinuousSelection: 'You selected segments that are not all connected and have the non-continuous selected segments setting set to give error. Segments not simplified.',
                         OnlyOneSegment: 'You only selected one segment. This script is designed to work with more than one segment selected. Segments not simplified.',
                         TooManySegments: 'You selected too many segments and have the sanity check setting set to give error. Segments not simplified.'
+                    },
+                    help: {
+                        Note01: 'This script uses the action manager, so changes can be undone before saving.',
+                        Step01: 'Select the starting segment.',
+                        Step02: 'ALT+click the ending segment.',
+                        Step02note: 'If the segments you wanted to straighten are not all selected, unselect them and start over using CTRL+click each segment instead.',
+                        Step03: 'Click "Simplify geometry" button in the sidebar.'
                     },
                     log: {
                         AlignSegments: 'Align segments',
@@ -361,6 +413,9 @@ function loadTranslations() {
                     },
                     prompts: {
                         ConflictingNamesConfirm: 'You selected segments that do not share at least one name in common amongst all the segments. Are you sure you wish to continue simplifaction?',
+                        MicroDogLegsConfirm: 'One or more of the segments you selected have a geonode within 2 meters of the junction node. This is usually the sign of a micro dog leg (mDL).<br><br>'
+                        + '<b>You should not continue until you are certain there are no micro dog legs.<b><br><br>'
+                        + 'Are you sure you wish to continue with simplification?',
                         NonContinuousConfirm: 'You selected segments that do not all connect. Are you sure you wish to continue with simplification?',
                         SanityCheckConfirm: 'You selected many segments. Are you sure you wish to continue with simplification?'
                     },
@@ -369,7 +424,7 @@ function loadTranslations() {
                         GiveWarning: 'Give warning',
                         NoWarning: 'No warning',
                         ConflictingNames: 'Segments with conflicting names',
-                        ConflictingNamesTitle: 'Select what to do if the selected segments do not all have the same name.',
+                        ConflictingNamesTitle: 'Select what to do if the selected segments do not share at least one name among their primary and alternate names (based on name, city and state).',
                         NonContinuous: 'Non-continuous selected segments',
                         NonContinuousTitle: 'Select what to do if the selected segments are not continuous.',
                         SanityCheck: 'Sanity check',
@@ -430,6 +485,8 @@ function buildSelections(selected) {
 
 async function init() {
     log('Initializing.');
+    if (W.loginManager.getUserRank() < 2)
+        return;
     await loadSettingsFromStorage();
     await loadTranslations();
     const $ssgTab = $('<div>', { style: 'padding:8px 16px', id: 'WMESSGSettings' });
@@ -447,7 +504,11 @@ async function init() {
         `<div id="WMESSG-div-sanityCheck" class="controls-container"><select id="WMESSG-sanityCheck" style="font-size:11px;height:22px;" title="${I18n.t('wmessg.settings.SanityCheckTitle')}">`,
         buildSelections(_settings.sanityCheck),
         `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmessg.settings.SanityCheck')}</div>`,
-        '</div>'
+        `<div style="margin-top:20px;"><div style="font-size:14px;font-weight:600;">${I18n.t('wmessg.common.Help')}:</div><div><ol style="font-weight:600;">`,
+        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmessg.help.Step01')}</p></li>`,
+        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmessg.help.Step02')}<br><b>${I18n.t('wmessg.common.Note')}:</b> ${I18n.t('wmessg.help.Step02note')}</p></li>`,
+        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmessg.help.Step03')}</p></li></ol></div>`,
+        `<b>${I18n.t('wmessg.common.Note')}:</b> ${I18n.t('wmessg.help.Note01')}</div></div>`
     ].join(' '));
     new WazeWrap.Interface.Tab('SSG', $ssgTab.html(), registerEvents);
     _updateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
