@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         WME Simplify Street Geometry (beta)
+// @name         WME Simplify Street Geometry
 // @namespace   https://greasyfork.org/users/166843
 // @version      2019.08.09.01
 // @description  Flatten selected segments into a perfectly straight line.
@@ -15,7 +15,7 @@
 /* global localStorage, window, $, performance, I18n, GM_info, W, WazeWrap */
 
 const ALERT_UPDATE = true,
-    DEBUG = true,
+    DEBUG = false,
     LOAD_BEGIN_TIME = performance.now(),
     // SCRIPT_AUTHOR = GM_info.script.author,
     SCRIPT_FORUM_URL = '',
