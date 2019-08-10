@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         WME Simplify Street Geometry (beta)
+// @name         WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.09.02
-// @description  Flatten selected segments into a perfectly straight line.
+// @version      2019.08.10.01
+// @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
 // @require     https://greasyfork.org/scripts/24851-wazewrap/code/WazeWrap.js
@@ -19,13 +19,16 @@ const ALERT_UPDATE = true,
     LOAD_BEGIN_TIME = performance.now(),
     // SCRIPT_AUTHOR = GM_info.script.author,
     SCRIPT_FORUM_URL = '',
-    SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-simplify-street-geometry',
+    SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
     SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.',
         '<b>NEW:</b> Check for micro dog legs.',
-        '<b>NEW:</b> Restrict to rank 3+.'],
-    SETTINGS_STORE_NAME = 'WMESSG',
+        '<b>NEW:</b> Restrict to rank 3+.',
+        '<b>CHANGE:</b> New name... (sketch)',
+        '<b>CHANGE:</b> Determine true end point segments and align only junction nodes between them.',
+        '<b>CHANGE:</b> Selecting only one segment will only remove geometry nodes'],
+    SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined };
 let _moveNode,
     _settings = {},
@@ -62,7 +65,7 @@ function saveSettingsToStorage() {
 function showScriptInfoAlert() {
     if (ALERT_UPDATE && SCRIPT_VERSION !== _settings.lastVersion) {
         let releaseNotes = '';
-        releaseNotes += `<p>${I18n.t('wmessg.common.WhatsNew')}:</p>`;
+        releaseNotes += `<p>${I18n.t('wmesu.common.WhatsNew')}:</p>`;
         if (SCRIPT_VERSION_CHANGES.length > 0) {
             releaseNotes += '<ul>';
             for (let idx = 0; idx < SCRIPT_VERSION_CHANGES.length; idx++)
@@ -70,7 +73,7 @@ function showScriptInfoAlert() {
             releaseNotes += '</ul>';
         }
         else {
-            releaseNotes += `<ul><li>${I18n.t('wmessg.common.NothingMajor')}</ul>`;
+            releaseNotes += `<ul><li>${I18n.t('wmesu.common.NothingMajor')}</ul>`;
         }
         WazeWrap.Interface.ShowScriptUpdate(SCRIPT_NAME, SCRIPT_VERSION, releaseNotes, SCRIPT_GF_URL, SCRIPT_FORUM_URL);
     }
@@ -90,12 +93,12 @@ function checkTimeout(obj) {
     }
 }
 
-function log(message) { console.log('SSG:', message); }
-function logError(message) { console.error('SSG:', message); }
-function logWarning(message) { console.warn('SSG:', message); }
+function log(message) { console.log('WME-SU:', message); }
+function logError(message) { console.error('WME-SU:', message); }
+function logWarning(message) { console.warn('WME-SU:', message); }
 function logDebug(message) {
     if (DEBUG)
-        console.log('SSG:', message);
+        console.log('WME-SU:', message);
 }
 
 // рассчитаем пересчечение перпендикуляра точки с наклонной прямой
@@ -183,36 +186,36 @@ function checkForMicroDogLegs(selectedFeatures) {
     return false;
 }
 
-function doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue) {
-    const numSelectedFeatures = W.selectionManager.getSelectedFeatures().length;
-    if (numSelectedFeatures > 1) {
-        const selectedFeatures = W.selectionManager.getSelectedFeatures();
-        if ((numSelectedFeatures > 10) && !sanityContinue) {
+function doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue) {
+    const selectedFeatures = W.selectionManager.getSelectedFeatures(),
+        segmentSelection = W.selectionManager.getSegmentSelection();
+    if (selectedFeatures.length > 1) {
+        if ((selectedFeatures.length > 10) && !sanityContinue) {
             if (_settings.sanityCheck === 'error')
-                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmessg.error.TooManySegments'));
+                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.TooManySegments'));
             if (_settings.sanityCheck === 'warning') {
                 return WazeWrap.Alerts.confirm(
                     SCRIPT_NAME,
-                    I18n.t('wmessg.prompts.SanityCheckConfirm'),
-                    () => { doSimplifyStreetGeometry(true); },
+                    I18n.t('wmesu.prompts.SanityCheckConfirm'),
+                    () => { doStraightenSegments(true); },
                     () => { },
-                    I18n.t('wmessg.common.Yes'),
-                    I18n.t('wmessg.common.No')
+                    I18n.t('wmesu.common.Yes'),
+                    I18n.t('wmesu.common.No')
                 );
             }
             sanityContinue = true;
         }
-        if ((W.selectionManager.getSegmentSelection().multipleConnectedComponents === true) && !nonContinuousContinue) {
+        if ((segmentSelection.multipleConnectedComponents === true) && !nonContinuousContinue) {
             if (_settings.nonContinuousSelection === 'error')
-                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmessg.error.NonContinuous'));
+                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.NonContinuous'));
             if (_settings.nonContinuousSelection === 'warning') {
                 return WazeWrap.Alerts.confirm(
                     SCRIPT_NAME,
-                    I18n.t('wmessg.prompts.NonContinuousConfirm'),
-                    () => { doSimplifyStreetGeometry(sanityContinue, true); },
+                    I18n.t('wmesu.prompts.NonContinuousConfirm'),
+                    () => { doStraightenSegments(sanityContinue, true); },
                     () => { },
-                    I18n.t('wmessg.common.Yes'),
-                    I18n.t('wmessg.common.No')
+                    I18n.t('wmesu.common.Yes'),
+                    I18n.t('wmesu.common.No')
                 );
             }
             nonContinuousContinue = true;
@@ -220,15 +223,15 @@ function doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflic
         if (_settings.conflictingNames !== 'nowarning') {
             const continuousNames = checkNameContinuity(selectedFeatures);
             if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'error'))
-                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmessg.error.ConflictingNames'));
+                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.ConflictingNames'));
             if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'warning')) {
                 return WazeWrap.Alerts.confirm(
                     SCRIPT_NAME,
-                    I18n.t('wmessg.prompts.ConflictingNamesConfirm'),
-                    () => { doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, true); },
+                    I18n.t('wmesu.prompts.ConflictingNamesConfirm'),
+                    () => { doStraightenSegments(sanityContinue, nonContinuousContinue, true); },
                     () => { },
-                    I18n.t('wmessg.common.Yes'),
-                    I18n.t('wmessg.common.No')
+                    I18n.t('wmesu.common.Yes'),
+                    I18n.t('wmesu.common.No')
                 );
             }
             conflictingNamesContinue = true;
@@ -236,188 +239,153 @@ function doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflic
         if (!microDogLegsContinue && (checkForMicroDogLegs(selectedFeatures) === true)) {
             return WazeWrap.Alerts.confirm(
                 SCRIPT_NAME,
-                I18n.t('wmessg.prompts.MicroDogLegsConfirm'),
-                () => { doSimplifyStreetGeometry(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true); },
+                I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
+                () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true); },
                 () => { },
-                I18n.t('wmessg.common.Yes'),
-                I18n.t('wmessg.common.No')
+                I18n.t('wmesu.common.Yes'),
+                I18n.t('wmesu.common.No')
             );
         }
-        let t1,
-            t2,
-            t,
-            a = 0.0,
-            b = 0.0,
-            c = 0.0;
-        // определим линию выравнивания
-        // Define an alignment line
-        logDebug(I18n.t('wmessg.log.CalculationOfInclinedLine'));
-        for (let idx = 0; idx < numSelectedFeatures; idx++) {
-            const seg = selectedFeatures[idx];
-            if (seg.model.type === 'segment') {
-                const geo = seg.model.geometry;
-                // определяем формулу наклонной прямой
-                // Determine the formula of the inclined line
-                if (geo.components.length > 1) {
-                    const a1 = geo.components[0].clone(),
-                        a2 = geo.components[geo.components.length - 1].clone();
-                    let dX = getDeltaDirect(a1.x, a2.x),
-                        dY = getDeltaDirect(a1.y, a2.y);
-                    const tX = idx > 0 ? getDeltaDirect(t1.x, t2.x) : 0,
-                        tY = idx > 0 ? getDeltaDirect(t1.y, t2.y) : 0;
-                    logDebug(`${I18n.t('wmessg.log.CalculatedLineVector')}: tX=${tX}, tY=${tY}`);
-                    logDebug(`${I18n.t('wmessg.log.Segment')} #${(idx + 1)} (${a1.x}; ${a1.y}) - (${a2.x}; ${a2.y}), dX=${dX}, dY=${dY}`);
-                    if (dX < 0) {
-                        t = a1.x;
-                        a1.x = a2.x;
-                        a2.x = t;
-                        t = a1.y;
-                        a1.y = a2.y;
-                        a2.y = t;
-                        dX = getDeltaDirect(a1.x, a2.x);
-                        dY = getDeltaDirect(a1.y, a2.y);
-                        logDebug(`${I18n.t('wmessg.log.ExpandTheSegment')} #${(idx + 1)} (${a1.x}; ${a1.y}) - (${a2.x}; ${a2.y}), dX=${dX}, dY=${dY}`);
-                    }
-                    if (idx === 0) {
-                        t1 = a1.clone();
-                        t2 = a2.clone();
-                    }
-                    else {
-                        if (a1.x < t1.x) {
-                            t1.x = a1.x;
-                            t1.y = a1.y;
-                        }
-                        if (a2.x > t2.x) {
-                            t2.x = a2.x;
-                            t2.y = a2.y;
-                        }
-                    }
-                    logDebug(`${I18n.t('wmessg.log.SettlementDirectBy')} (${t1.x}; ${t1.y}) - (${t2.x}; ${t2.y})`);
-                }
-            }
-            else {
-                logWarning(I18n.t('wmessg.log.NonSegmentFound'));
-            }
-        }
-        a = t2.y - t1.y;
-        b = t1.x - t2.x;
-        c = t2.x * t1.y - t1.x * t2.y;
-        logDebug(I18n.t('wmessg.log.DirectAlignmentCalculated'));
-        logDebug(`${I18n.t('wmessg.log.EndPoints')}: (${t1.x}; ${t1.y}) - (${t2.x}; ${t2.y})`);
-        logDebug(`${I18n.t('wmessg.log.DirectFormula')}: ${a}x + ${b}y + ${c}`);
-        logDebug(`${I18n.t('wmessg.log.AlignSegments')}... ${numSelectedFeatures}`);
-        for (let idx = 0; idx < numSelectedFeatures; idx++) {
-            const seg = selectedFeatures[idx],
-                { model } = seg;
-            if (model.type === 'segment') {
-                const newGeo = model.geometry.clone();
-                let flagSimpled = false;
-                // удаляем лишние узлы
-                // Remove the extra nodes
+        const allNodeIds = [],
+            dupNodeIds = [];
+        let endPointNodeIds;
+        for (let idx = 0; idx < selectedFeatures.length; idx++) {
+            allNodeIds.push(selectedFeatures[idx].model.attributes.fromNodeID);
+            allNodeIds.push(selectedFeatures[idx].model.attributes.toNodeID);
+            if (selectedFeatures[idx].model.type === 'segment') {
+                const newGeo = selectedFeatures[idx].model.geometry.clone();
+                // Remove the geometry nodes
                 if (newGeo.components.length > 2) {
                     newGeo.components.splice(1, newGeo.components.length - 2);
-                    flagSimpled = true;
+                    newGeo.components[0].calculateBounds();
+                    newGeo.components[1].calculateBounds();
+                    W.model.actionManager.add(new _updateSegmentGeometry(selectedFeatures[idx].model, selectedFeatures[idx].model.geometry, newGeo));
+                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${selectedFeatures[idx].model.attributes.id}`);
                 }
-                // упрощаем сегмент, если нужно
-                // Simplify the segment, if necessary
-                if (flagSimpled)
-                    W.model.actionManager.add(new _updateSegmentGeometry(model, model.geometry, newGeo));
-                    // работа с узлом
-                    // Work with a node
-                const node = W.model.nodes.getObjectById(model.attributes.fromNodeID),
-                    nodeGeo = node.geometry.clone(),
-                    d = nodeGeo.y * a - nodeGeo.x * b,
+            }
+        }
+        allNodeIds.forEach((nodeId, idx) => {
+            if (allNodeIds.indexOf(nodeId, idx + 1) > -1) {
+                if (dupNodeIds.indexOf(nodeId) === -1)
+                    dupNodeIds.push(nodeId);
+            }
+        });
+        const distinctNodes = [...new Set(allNodeIds)];
+        if (segmentSelection.multipleConnectedComponents === false)
+            endPointNodeIds = distinctNodes.filter(nodeId => !dupNodeIds.includes(nodeId));
+        else
+            endPointNodeIds = [selectedFeatures[0].model.attributes.fromNodeID, selectedFeatures[(selectedFeatures.length - 1)].model.attributes.toNodeID];
+        logDebug(`${I18n.t('wmesu.log.StraighteningSegments')}: ${distinctNodes.join(', ')} (${distinctNodes.length})`);
+        const endPointNodeObjs = W.model.nodes.getByIds(endPointNodeIds),
+            endPointNode1Geo = endPointNodeObjs[0].geometry.clone(),
+            endPointNode2Geo = endPointNodeObjs[1].geometry.clone();
+        if (getDeltaDirect(endPointNode1Geo.x, endPointNode2Geo.x) < 0) {
+            let t = endPointNode1Geo.x;
+            endPointNode1Geo.x = endPointNode2Geo.x;
+            endPointNode2Geo.x = t;
+            t = endPointNode1Geo.y;
+            endPointNode1Geo.y = endPointNode2Geo.y;
+            endPointNode2Geo.y = t;
+            endPointNodeIds.push(endPointNodeIds[0]);
+            endPointNodeIds.splice(0, 1);
+            endPointNodeObjs.push(endPointNodeObjs[0]);
+            endPointNodeObjs.splice(0, 1);
+        }
+        logDebug(`${I18n.t('wmesu.log.EndPoints')}: ${endPointNodeIds.join(' & ')}`);
+        const a = endPointNode2Geo.y - endPointNode1Geo.y,
+            b = endPointNode1Geo.x - endPointNode2Geo.x,
+            c = endPointNode2Geo.x * endPointNode1Geo.y - endPointNode1Geo.x * endPointNode2Geo.y;
+        distinctNodes.forEach(nodeId => {
+            if (endPointNodeIds.indexOf(nodeId) === -1) {
+                const node = W.model.nodes.getObjectById(nodeId),
+                    nodeGeo = node.geometry.clone();
+                const d = nodeGeo.y * a - nodeGeo.x * b,
                     r1 = getIntersectCoord(a, b, c, d);
                 nodeGeo.x = r1.x;
                 nodeGeo.y = r1.y;
                 nodeGeo.calculateBounds();
-                const connectedSegObjs = {},
-                    emptyObj = {};
-                for (let idx2 = 0; idx2 < node.attributes.segIDs.length; idx2++) {
-                    const segId = node.attributes.segIDs[idx2];
+                const connectedSegObjs = {};
+                for (let idx = 0; idx < node.attributes.segIDs.length; idx++) {
+                    const segId = node.attributes.segIDs[idx];
                     connectedSegObjs[segId] = W.model.segments.getObjectById(segId).geometry.clone();
                 }
-                W.model.actionManager.add(new _moveNode(node, node.geometry, nodeGeo, connectedSegObjs, emptyObj));
-                const node2 = W.model.nodes.getObjectById(model.attributes.toNodeID),
-                    nodeGeo2 = node2.geometry.clone(),
-                    d2 = nodeGeo2.y * a - nodeGeo2.x * b,
-                    r2 = getIntersectCoord(a, b, c, d2);
-                nodeGeo2.x = r2.x;
-                nodeGeo2.y = r2.y;
-                nodeGeo2.calculateBounds();
-                for (let idx2 = 0; idx2 < node2.attributes.segIDs.length; idx2++) {
-                    const segId = node2.attributes.segIDs[idx2];
-                    connectedSegObjs[segId] = W.model.segments.getObjectById(segId).geometry.clone();
-                }
-                W.model.actionManager.add(new _moveNode(node2, node2.geometry, nodeGeo2, connectedSegObjs, emptyObj));
-                logDebug(`${I18n.t('wmessg.log.Segment')} #${(idx + 1)} (${r1.x}; ${r1.y}) - (${r2.x}; ${r2.y})`);
+                logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${nodeId} `
+                    + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
+                    + `${I18n.t('wmesu.common.To')}: ${r1.x},${r1.y}`);
+                W.model.actionManager.add(new _moveNode(node, node.geometry, nodeGeo, connectedSegObjs, {}));
             }
-            else {
-                logWarning(I18n.t('wmessg.log.NonSegmentFound'));
+        });
+    } // W.selectionManager.selectedItems.length > 0
+    else if (selectedFeatures.length === 1) {
+        const seg = selectedFeatures[0],
+            { model } = seg;
+        if (model.type === 'segment') {
+            const newGeo = model.geometry.clone();
+            // Remove the geometry nodes
+            if (newGeo.components.length > 2) {
+                newGeo.components.splice(1, newGeo.components.length - 2);
+                newGeo.components[0].calculateBounds();
+                newGeo.components[1].calculateBounds();
+                W.model.actionManager.add(new _updateSegmentGeometry(model, model.geometry, newGeo));
+                logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${model.attributes.id}`);
             }
         }
-    } // W.selectionManager.selectedItems.length > 0
-    else if (numSelectedFeatures === 1) {
-        return WazeWrap.Alerts.info(SCRIPT_NAME, I18n.t('wmessg.error.OnlyOneSegment'));
     }
     else {
-        logWarning(I18n.t('wmessg.log.NoSegmentsSelected'));
+        logWarning(I18n.t('wmesu.log.NoSegmentsSelected'));
     }
     return true;
 }
 
 function insertSimplifyStreetGeometryButtons() {
-    $('.edit-restrictions').after(`<button id="WME-SSG" class="waze-btn waze-btn-small waze-btn-white" title="${I18n.t('wmessg.SimplifyGeometryTitle')}">${I18n.t('wmessg.SimplifyGeometry')}</button>`);
+    $('.edit-restrictions').after(`<button id="WME-SU" class="waze-btn waze-btn-small waze-btn-white" title="${I18n.t('wmesu.StraightenUpTitle')}">${I18n.t('wmesu.StraightenUp')}</button>`);
 }
 
 function loadTranslations() {
     return new Promise(resolve => {
         const translations = {
                 en: {
-                    SimplifyGeometry: 'Simplify geometry',
-                    SimplifyGeometryTitle: 'Click here to flatten the selected segments into a straight line.',
+                    StraightenUp: 'Straighten up!',
+                    StraightenUpTitle: 'Click here to straighten the selected segment(s) by removing geometry nodes and moving junction nodes as needed.',
                     common: {
+                        From: 'from',
                         Help: 'Help',
                         No: 'No',
                         Note: 'Note',
                         NothingMajor: 'Nothing major.',
+                        To: 'to',
                         WhatsNew: 'What\'s new',
                         Yes: 'Yes'
                     },
                     error: {
                         ConflictingNames: 'You selected segments that do not share at least one name in common amongst all the segments and have the conflicting names setting set to error. '
-                            + 'Segments not simplified.',
-                        NonContinuousSelection: 'You selected segments that are not all connected and have the non-continuous selected segments setting set to give error. Segments not simplified.',
-                        OnlyOneSegment: 'You only selected one segment. This script is designed to work with more than one segment selected. Segments not simplified.',
-                        TooManySegments: 'You selected too many segments and have the sanity check setting set to give error. Segments not simplified.'
+                            + 'Segments not straightened.',
+                        NonContinuousSelection: 'You selected segments that are not all connected and have the non-continuous selected segments setting set to give error. Segments not straightened.',
+                        TooManySegments: 'You selected too many segments and have the sanity check setting set to give error. Segments not straightened.'
                     },
                     help: {
                         Note01: 'This script uses the action manager, so changes can be undone before saving.',
+                        Warning01: 'Enabling (Give warning, No warning) any of these settings can cause unexpected results. Use with caution!',
                         Step01: 'Select the starting segment.',
                         Step02: 'ALT+click the ending segment.',
-                        Step02note: 'If the segments you wanted to straighten are not all selected, unselect them and start over using CTRL+click each segment instead.',
-                        Step03: 'Click "Simplify geometry" button in the sidebar.'
+                        Step02note: 'If the segments you wanted to straighten are not all selected, unselect them and start over using CTRL+click to select each segment instead.',
+                        Step03: 'Click "Straighten up!" button in the sidebar.'
                     },
                     log: {
-                        AlignSegments: 'Align segments',
-                        CalculatedLineVector: 'Calculated line vector',
-                        CalculationOfInclinedLine: 'Calculation of the inclined line formula...',
-                        DirectAlignmentCalculated: 'Direct alignment calculated.',
-                        DirectFormula: 'Direct formula',
                         EndPoints: 'End points',
-                        ExpandTheSegment: 'Expand the segment',
-                        NonSegmentFound: 'Non segment found in selection.',
+                        MovingJunctionNode: 'Moving junction node',
                         NoSegmentsSelected: 'No segments selected.',
+                        RemovedGeometryNodes: 'Removed geometry nodes for segment',
                         Segment: I18n.t('objects.segment.name'),
-                        SettlementDirectBy: 'Settlement direct by'
+                        StraighteningSegments: 'Straightening segments'
                     },
                     prompts: {
-                        ConflictingNamesConfirm: 'You selected segments that do not share at least one name in common amongst all the segments. Are you sure you wish to continue simplifaction?',
+                        ConflictingNamesConfirm: 'You selected segments that do not share at least one name in common amongst all the segments. Are you sure you wish to continue straightening?',
                         MicroDogLegsConfirm: 'One or more of the segments you selected have a geonode within 2 meters of the junction node. This is usually the sign of a micro dog leg (mDL).<br><br>'
                         + '<b>You should not continue until you are certain there are no micro dog legs.<b><br><br>'
-                        + 'Are you sure you wish to continue with simplification?',
-                        NonContinuousConfirm: 'You selected segments that do not all connect. Are you sure you wish to continue with simplification?',
-                        SanityCheckConfirm: 'You selected many segments. Are you sure you wish to continue with simplification?'
+                        + 'Are you sure you wish to continue straightening?',
+                        NonContinuousConfirm: 'You selected segments that do not all connect. Are you sure you wish to continue straightening?',
+                        SanityCheckConfirm: 'You selected many segments. Are you sure you wish to continue straightening?'
                     },
                     settings: {
                         GiveError: 'Give error',
@@ -434,31 +402,24 @@ function loadTranslations() {
                 ru: {
                     SimplifyGeometry: 'Выровнять улицу',
                     log: {
-                        AlignSegments: 'выравниваем сегменты',
-                        CalculatedLineVector: 'расчётный вектор линии',
-                        CalculationOfInclinedLine: 'расчёт формулы наклонной прямой...',
-                        DirectAlignmentCalculated: 'прямая выравнивания рассчитана.',
-                        DirectFormula: 'формула прямой',
                         EndPoints: 'конечные точки',
-                        ExpandTheSegment: 'разворачиваем сегмент',
-                        Segment: I18n.t('objects.segment.name'),
-                        SettlementDirectBy: 'расчётная прямая по'
+                        Segment: I18n.t('objects.segment.name')
                     }
                 }
             },
             locale = I18n.currentLocale(),
             availTranslations = Object.keys(translations);
-        I18n.translations[locale].wmessg = translations.en;
+        I18n.translations[locale].wmesu = translations.en;
         if (availTranslations.indexOf(I18n.currentLocale()) > 0) {
             Object.keys(translations[locale]).forEach(prop => {
                 if (typeof translations[locale][prop] === 'object') {
                     Object.keys(translations[locale][prop]).forEach(subProp => {
                         if (translations[locale][prop][subProp] !== '')
-                            I18n.translations[locale].wmessg[prop][subProp] = translations[locale][prop][subProp];
+                            I18n.translations[locale].wmesu[prop][subProp] = translations[locale][prop][subProp];
                     });
                 }
                 else if (translations[locale][prop] !== '') {
-                    I18n.translations[locale].wmessg[prop] = translations[locale][prop];
+                    I18n.translations[locale].wmesu[prop] = translations[locale][prop];
                 }
             });
         }
@@ -467,7 +428,7 @@ function loadTranslations() {
 }
 
 function registerEvents() {
-    $('#WMESSG-conflictingNames').off().on('change', function () {
+    $('#WMESU-conflictingNames, #WMESU-nonContinuousSelection, #WMESU-sanityCheck').off().on('change', function () {
         const setting = this.id.substr(7);
         if (this.value.toLowerCase() !== _settings[setting]) {
             _settings[setting] = this.value.toLowerCase();
@@ -477,9 +438,9 @@ function registerEvents() {
 }
 
 function buildSelections(selected) {
-    const rVal = `<option value="nowarning"${(selected === 'nowarning' ? ' selected' : '')}>${I18n.t('wmessg.settings.NoWarning')}</option>`
-    + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmessg.settings.GiveWarning')}</option>`
-    + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmessg.settings.GiveError')}</option>`;
+    const rVal = `<option value="nowarning"${(selected === 'nowarning' ? ' selected' : '')}>${I18n.t('wmesu.settings.NoWarning')}</option>`
+    + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveWarning')}</option>`
+    + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveError')}</option>`;
     return rVal;
 }
 
@@ -489,34 +450,34 @@ async function init() {
         return;
     await loadSettingsFromStorage();
     await loadTranslations();
-    const $ssgTab = $('<div>', { style: 'padding:8px 16px', id: 'WMESSGSettings' });
-    $ssgTab.html([
+    const $suTab = $('<div>', { style: 'padding:8px 16px', id: 'WMESUSettings' });
+    $suTab.html([
         `<div style="margin-bottom:0px;font-size:13px;font-weight:600;">${SCRIPT_NAME}</div>`,
         `<div style="margin-top:0px;font-size:11px;font-weight:600;color:#aaa">${SCRIPT_VERSION}</div>`,
-        `<div id="WMESSG-div-conflictingNames" class="controls-container"><select id="WMESSG-conflictingNames" style="font-size:11px;height:22px;" title="${I18n.t('wmessg.settings.ConflictingNamesTitle')}">`,
+        `<div id="WMESU-div-conflictingNames" class="controls-container"><select id="WMESU-conflictingNames" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.ConflictingNamesTitle')}">`,
         buildSelections(_settings.conflictingNames),
-        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmessg.settings.ConflictingNames')}</div>`,
+        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.ConflictingNames')}</div>`,
         '</div><br/>',
-        `<div id="WMESSG-div-nonContinuousSelection" class="controls-container"><select id="WMESSG-nonContinuousSelection" style="font-size:11px;height:22px;" title="${I18n.t('wmessg.settings.NonContinuousTitle')}">`,
+        `<div id="WMESU-div-nonContinuousSelection" class="controls-container"><select id="WMESU-nonContinuousSelection" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.NonContinuousTitle')}">`,
         buildSelections(_settings.nonContinuousSelection),
-        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmessg.settings.NonContinuous')}</div>`,
+        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.NonContinuous')}</div>`,
         '</div><br/>',
-        `<div id="WMESSG-div-sanityCheck" class="controls-container"><select id="WMESSG-sanityCheck" style="font-size:11px;height:22px;" title="${I18n.t('wmessg.settings.SanityCheckTitle')}">`,
+        `<div id="WMESU-div-sanityCheck" class="controls-container"><select id="WMESU-sanityCheck" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.SanityCheckTitle')}">`,
         buildSelections(_settings.sanityCheck),
-        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmessg.settings.SanityCheck')}</div>`,
-        `<div style="margin-top:20px;"><div style="font-size:14px;font-weight:600;">${I18n.t('wmessg.common.Help')}:</div><div><ol style="font-weight:600;">`,
-        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmessg.help.Step01')}</p></li>`,
-        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmessg.help.Step02')}<br><b>${I18n.t('wmessg.common.Note')}:</b> ${I18n.t('wmessg.help.Step02note')}</p></li>`,
-        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmessg.help.Step03')}</p></li></ol></div>`,
-        `<b>${I18n.t('wmessg.common.Note')}:</b> ${I18n.t('wmessg.help.Note01')}</div></div>`
+        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.SanityCheck')}</div>`,
+        `<div style="margin-top:20px;"><div style="font-size:14px;font-weight:600;">${I18n.t('wmesu.common.Help')}:</div><div><ol style="font-weight:600;">`,
+        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step01')}</p></li>`,
+        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step02')}<br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Step02note')}</p></li>`,
+        `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step03')}</p></li></ol></div>`,
+        `<b>${I18n.t('wmesu.common.Warning')}:</b> ${I18n.t('wmesu.help.Warning01')}<br><br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Note01')}</div></div>`
     ].join(' '));
-    new WazeWrap.Interface.Tab('SSG', $ssgTab.html(), registerEvents);
+    new WazeWrap.Interface.Tab('SU!', $suTab.html(), registerEvents);
     _updateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
     _moveNode = require('Waze/Action/MoveNode');
     W.selectionManager.events.register('selectionchanged', null, insertSimplifyStreetGeometryButtons);
-    $('#sidebar').on('click', '#WME-SSG', e => {
+    $('#sidebar').on('click', '#WME-SU', e => {
         e.preventDefault();
-        doSimplifyStreetGeometry();
+        doStraightenSegments();
     });
     showScriptInfoAlert();
     log(`Fully initialized in ${Math.round(performance.now() - LOAD_BEGIN_TIME)} ms.`);
