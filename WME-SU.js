@@ -354,6 +354,7 @@ function loadTranslations() {
                         Note: 'Note',
                         NothingMajor: 'Nothing major.',
                         To: 'to',
+                        Warning: 'Warning',
                         WhatsNew: 'What\'s new',
                         Yes: 'Yes'
                     },
