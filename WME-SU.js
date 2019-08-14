@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.10.01
+// @version      2019.08.14.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -25,19 +25,21 @@ const ALERT_UPDATE = true,
     SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.',
         '<b>NEW:</b> Check for micro dog legs.',
         '<b>NEW:</b> Restrict to rank 3+.',
+        '<b>NEW:</b> Check if a junction node would move further than 10m.',
         '<b>CHANGE:</b> New name... (sketch)',
         '<b>CHANGE:</b> Determine true end point segments and align only junction nodes between them.',
-        '<b>CHANGE:</b> Selecting only one segment will only remove geometry nodes'],
+        '<b>CHANGE:</b> Selecting only one segment will only remove geometry nodes',
+        '<b>CHANGE:</b> Slight performance increase with optimization.',
+        '<b>BUGFIX:</b> Settings now save to storage on initial load.'],
     SETTINGS_STORE_NAME = 'WMESU',
-    _timeouts = { bootstrap: undefined };
-let _moveNode,
-    _settings = {},
-    _updateSegmentGeometry;
+    _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
+let _settings = {};
 
 function loadSettingsFromStorage() {
     return new Promise(async resolve => {
         const defaultSettings = {
                 conflictingNames: 'warning',
+                longJnMove: 'warning',
                 nonContinuousSelection: 'warning',
                 sanityCheck: 'warning',
                 lastSaved: 0,
@@ -48,11 +50,13 @@ function loadSettingsFromStorage() {
         const serverSettings = await WazeWrap.Remote.RetrieveSettings(SETTINGS_STORE_NAME);
         if (serverSettings && (serverSettings.lastSaved > _settings.lastSaved))
             $.extend(_settings, serverSettings);
+        _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
         resolve();
     });
 }
 
 function saveSettingsToStorage() {
+    checkTimeout({ timeout: 'saveSettingsToStorage' });
     if (localStorage) {
         _settings.lastVersion = SCRIPT_VERSION;
         _settings.lastSaved = Date.now();
@@ -155,13 +159,15 @@ function checkNameContinuity(selectedFeatures) {
     return true;
 }
 
-function distanceBetweenPointsInKM(lon1, lat1, lon2, lat2) {
+function distanceBetweenPoints(lon1, lat1, lon2, lat2, measurement) {
+    // eslint-disable-next-line no-nested-ternary
+    const multiplier = measurement === 'meters' ? 1000 : measurement === 'miles' ? 0.621371192237334 : 1;
     lon1 *= 0.017453292519943295; // 0.017453292519943295 = Math.PI / 180
     lat1 *= 0.017453292519943295;
     lon2 *= 0.017453292519943295;
     lat2 *= 0.017453292519943295;
     // 12742 = Diam of earth in km (2 * 6371)
-    return 12742 * Math.asin(Math.sqrt(((1 - Math.cos(lat2 - lat1)) + (1 - Math.cos(lon2 - lon1)) * Math.cos(lat1) * Math.cos(lat2)) / 2));
+    return 12742 * Math.asin(Math.sqrt(((1 - Math.cos(lat2 - lat1)) + (1 - Math.cos(lon2 - lon1)) * Math.cos(lat1) * Math.cos(lat2)) / 2)) * multiplier;
 }
 
 function checkForMicroDogLegs(selectedFeatures) {
@@ -176,9 +182,9 @@ function checkForMicroDogLegs(selectedFeatures) {
                 if (((testNode4326.lon === fromNode4326.lon) && (testNode4326.lat === fromNode4326.lat)) || ((testNode4326.lon === toNode4326.lon) && (testNode4326.lat === toNode4326.lat)))
                     // eslint-disable-next-line no-continue
                     continue;
-                if ((distanceBetweenPointsInKM(fromNode4326.lon, fromNode4326.lat, testNode4326.lon, testNode4326.lat) * 1000) < 2)
+                if (distanceBetweenPoints(fromNode4326.lon, fromNode4326.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
                     return true;
-                if ((distanceBetweenPointsInKM(toNode4326.lon, toNode4326.lat, testNode4326.lon, testNode4326.lat) * 1000) < 2)
+                if (distanceBetweenPoints(toNode4326.lon, toNode4326.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
                     return true;
             }
         }
@@ -186,10 +192,36 @@ function checkForMicroDogLegs(selectedFeatures) {
     return false;
 }
 
-function doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue) {
+function doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, longJnMoveContinue, passedObj) {
     const selectedFeatures = W.selectionManager.getSelectedFeatures(),
         segmentSelection = W.selectionManager.getSegmentSelection();
-    if (selectedFeatures.length > 1) {
+    if (longJnMoveContinue && (passedObj !== undefined)) {
+        const { segmentsToRemoveGeometryArr } = passedObj,
+            { nodesToMoveArr } = passedObj,
+            { distinctNodes } = passedObj,
+            { endPointNodeIds } = passedObj;
+        logDebug(`${I18n.t('wmesu.log.StraighteningSegments')}: ${distinctNodes.join(', ')} (${distinctNodes.length})`);
+        logDebug(`${I18n.t('wmesu.log.EndPoints')}: ${endPointNodeIds.join(' & ')}`);
+        if (segmentsToRemoveGeometryArr && (segmentsToRemoveGeometryArr.length > 0)) {
+            const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
+            segmentsToRemoveGeometryArr.forEach(segment => {
+                W.model.actionManager.add(new UpdateSegmentGeometry(segment.model, segment.model.geometry, segment.newGeo));
+                logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${segment.model.attributes.id}`);
+            });
+        }
+        if (nodesToMoveArr && (nodesToMoveArr.length > 0)) {
+            const MoveNode = require('Waze/Action/MoveNode');
+            nodesToMoveArr.forEach(node => {
+                logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${node.node.attributes.id} `
+                    + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
+                    + `${I18n.t('wmesu.common.To')}: ${node.nodeGeo.x},${node.nodeGeo.y}`);
+                W.model.actionManager.add(new MoveNode(node.node, node.geometry, node.nodeGeo, node.connectedSegObjs, {}));
+            });
+        }
+    }
+    else if (selectedFeatures.length > 1) {
+        const segmentsToRemoveGeometryArr = [],
+            nodesToMoveArr = [];
         if ((selectedFeatures.length > 10) && !sanityContinue) {
             if (_settings.sanityCheck === 'error')
                 return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.TooManySegments'));
@@ -197,14 +229,14 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
                 return WazeWrap.Alerts.confirm(
                     SCRIPT_NAME,
                     I18n.t('wmesu.prompts.SanityCheckConfirm'),
-                    () => { doStraightenSegments(true); },
+                    () => { doStraightenSegments(true, false, false, false, false, undefined); },
                     () => { },
                     I18n.t('wmesu.common.Yes'),
                     I18n.t('wmesu.common.No')
                 );
             }
-            sanityContinue = true;
         }
+        sanityContinue = true;
         if ((segmentSelection.multipleConnectedComponents === true) && !nonContinuousContinue) {
             if (_settings.nonContinuousSelection === 'error')
                 return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.NonContinuous'));
@@ -212,14 +244,14 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
                 return WazeWrap.Alerts.confirm(
                     SCRIPT_NAME,
                     I18n.t('wmesu.prompts.NonContinuousConfirm'),
-                    () => { doStraightenSegments(sanityContinue, true); },
+                    () => { doStraightenSegments(sanityContinue, true, false, false, false, undefined); },
                     () => { },
                     I18n.t('wmesu.common.Yes'),
                     I18n.t('wmesu.common.No')
                 );
             }
-            nonContinuousContinue = true;
         }
+        nonContinuousContinue = true;
         if (_settings.conflictingNames !== 'nowarning') {
             const continuousNames = checkNameContinuity(selectedFeatures);
             if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'error'))
@@ -228,27 +260,29 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
                 return WazeWrap.Alerts.confirm(
                     SCRIPT_NAME,
                     I18n.t('wmesu.prompts.ConflictingNamesConfirm'),
-                    () => { doStraightenSegments(sanityContinue, nonContinuousContinue, true); },
+                    () => { doStraightenSegments(sanityContinue, nonContinuousContinue, true, false, false, undefined); },
                     () => { },
                     I18n.t('wmesu.common.Yes'),
                     I18n.t('wmesu.common.No')
                 );
             }
-            conflictingNamesContinue = true;
         }
+        conflictingNamesContinue = true;
         if (!microDogLegsContinue && (checkForMicroDogLegs(selectedFeatures) === true)) {
             return WazeWrap.Alerts.confirm(
                 SCRIPT_NAME,
                 I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
-                () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true); },
+                () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
                 () => { },
                 I18n.t('wmesu.common.Yes'),
                 I18n.t('wmesu.common.No')
             );
         }
+        microDogLegsContinue = true;
         const allNodeIds = [],
             dupNodeIds = [];
-        let endPointNodeIds;
+        let endPointNodeIds,
+            longMove = false;
         for (let idx = 0; idx < selectedFeatures.length; idx++) {
             allNodeIds.push(selectedFeatures[idx].model.attributes.fromNodeID);
             allNodeIds.push(selectedFeatures[idx].model.attributes.toNodeID);
@@ -259,8 +293,7 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
                     newGeo.components.splice(1, newGeo.components.length - 2);
                     newGeo.components[0].calculateBounds();
                     newGeo.components[1].calculateBounds();
-                    W.model.actionManager.add(new _updateSegmentGeometry(selectedFeatures[idx].model, selectedFeatures[idx].model.geometry, newGeo));
-                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${selectedFeatures[idx].model.attributes.id}`);
+                    segmentsToRemoveGeometryArr.push({ model: selectedFeatures[idx].model, geometry: selectedFeatures[idx].model.geometry, newGeo });
                 }
             }
         }
@@ -275,7 +308,6 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
             endPointNodeIds = distinctNodes.filter(nodeId => !dupNodeIds.includes(nodeId));
         else
             endPointNodeIds = [selectedFeatures[0].model.attributes.fromNodeID, selectedFeatures[(selectedFeatures.length - 1)].model.attributes.toNodeID];
-        logDebug(`${I18n.t('wmesu.log.StraighteningSegments')}: ${distinctNodes.join(', ')} (${distinctNodes.length})`);
         const endPointNodeObjs = W.model.nodes.getByIds(endPointNodeIds),
             endPointNode1Geo = endPointNodeObjs[0].geometry.clone(),
             endPointNode2Geo = endPointNodeObjs[1].geometry.clone();
@@ -291,7 +323,6 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
             endPointNodeObjs.push(endPointNodeObjs[0]);
             endPointNodeObjs.splice(0, 1);
         }
-        logDebug(`${I18n.t('wmesu.log.EndPoints')}: ${endPointNodeIds.join(' & ')}`);
         const a = endPointNode2Geo.y - endPointNode1Geo.y,
             b = endPointNode1Geo.x - endPointNode2Geo.x,
             c = endPointNode2Geo.x * endPointNode1Geo.y - endPointNode1Geo.x * endPointNode2Geo.y;
@@ -309,11 +340,33 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
                     const segId = node.attributes.segIDs[idx];
                     connectedSegObjs[segId] = W.model.segments.getObjectById(segId).geometry.clone();
                 }
-                logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${nodeId} `
-                    + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
-                    + `${I18n.t('wmesu.common.To')}: ${r1.x},${r1.y}`);
-                W.model.actionManager.add(new _moveNode(node, node.geometry, nodeGeo, connectedSegObjs, {}));
+                const fromNodeLonLat = WazeWrap.Geometry.ConvertTo4326(node.geometry.x, node.geometry.y),
+                    toNodeLonLat = WazeWrap.Geometry.ConvertTo4326(r1.x, r1.y);
+                if (distanceBetweenPoints(fromNodeLonLat.lon, fromNodeLonLat.lat, toNodeLonLat.lon, toNodeLonLat.lat, 'meters') > 10)
+                    longMove = true;
+                nodesToMoveArr.push({
+                    node, geometry: node.geometry, nodeGeo, connectedSegObjs
+                });
             }
+        });
+        if (longMove && (_settings.longJnMove === 'error'))
+            return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.LongJnMove'));
+        if (longMove && (_settings.longJnMove === 'warning')) {
+            return WazeWrap.Alerts.confirm(
+                SCRIPT_NAME,
+                I18n.t('wmesu.prompts.LongJnMoveConfirm'),
+                () => {
+                    doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, true, {
+                        segmentsToRemoveGeometryArr, nodesToMoveArr, distinctNodes, endPointNodeIds
+                    });
+                },
+                () => { },
+                I18n.t('wmesu.common.Yes'),
+                I18n.t('wmesu.common.No')
+            );
+        }
+        doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, true, {
+            segmentsToRemoveGeometryArr, nodesToMoveArr, distinctNodes, endPointNodeIds
         });
     } // W.selectionManager.selectedItems.length > 0
     else if (selectedFeatures.length === 1) {
@@ -323,10 +376,11 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
             const newGeo = model.geometry.clone();
             // Remove the geometry nodes
             if (newGeo.components.length > 2) {
+                const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
                 newGeo.components.splice(1, newGeo.components.length - 2);
                 newGeo.components[0].calculateBounds();
                 newGeo.components[1].calculateBounds();
-                W.model.actionManager.add(new _updateSegmentGeometry(model, model.geometry, newGeo));
+                W.model.actionManager.add(new UpdateSegmentGeometry(model, model.geometry, newGeo));
                 logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${model.attributes.id}`);
             }
         }
@@ -361,7 +415,9 @@ function loadTranslations() {
                     error: {
                         ConflictingNames: 'You selected segments that do not share at least one name in common amongst all the segments and have the conflicting names setting set to error. '
                             + 'Segments not straightened.',
-                        NonContinuousSelection: 'You selected segments that are not all connected and have the non-continuous selected segments setting set to give error. Segments not straightened.',
+                        LongJnMove: 'One or more of the junction nodes that were to be moved would have been moved further than 10m and you have the long junction node move setting set to '
+                            + 'give error. Segments not straightened.',
+                        NonContinuous: 'You selected segments that are not all connected and have the non-continuous selected segments setting set to give error. Segments not straightened.',
                         TooManySegments: 'You selected too many segments and have the sanity check setting set to give error. Segments not straightened.'
                     },
                     help: {
@@ -382,6 +438,7 @@ function loadTranslations() {
                     },
                     prompts: {
                         ConflictingNamesConfirm: 'You selected segments that do not share at least one name in common amongst all the segments. Are you sure you wish to continue straightening?',
+                        LongJnMoveConfirm: 'One or more of the junction nodes that are to be moved would be moved further than 10m. Are you sure you wish to continue straightening?',
                         MicroDogLegsConfirm: 'One or more of the segments you selected have a geonode within 2 meters of the junction node. This is usually the sign of a micro dog leg (mDL).<br><br>'
                         + '<b>You should not continue until you are certain there are no micro dog legs.<b><br><br>'
                         + 'Are you sure you wish to continue straightening?',
@@ -394,6 +451,8 @@ function loadTranslations() {
                         NoWarning: 'No warning',
                         ConflictingNames: 'Segments with conflicting names',
                         ConflictingNamesTitle: 'Select what to do if the selected segments do not share at least one name among their primary and alternate names (based on name, city and state).',
+                        LongJnMove: 'Long junction node moves',
+                        LongJnMoveTitle: 'Select what to do if one or more of the junction nodes would move further than 10m.',
                         NonContinuous: 'Non-continuous selected segments',
                         NonContinuousTitle: 'Select what to do if the selected segments are not continuous.',
                         SanityCheck: 'Sanity check',
@@ -429,8 +488,8 @@ function loadTranslations() {
 }
 
 function registerEvents() {
-    $('#WMESU-conflictingNames, #WMESU-nonContinuousSelection, #WMESU-sanityCheck').off().on('change', function () {
-        const setting = this.id.substr(7);
+    $('#WMESU-conflictingNames, #WMESU-longJnMove, #WMESU-nonContinuousSelection, #WMESU-sanityCheck').off().on('change', function () {
+        const setting = this.id.substr(6);
         if (this.value.toLowerCase() !== _settings[setting]) {
             _settings[setting] = this.value.toLowerCase();
             saveSettingsToStorage();
@@ -459,6 +518,10 @@ async function init() {
         buildSelections(_settings.conflictingNames),
         `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.ConflictingNames')}</div>`,
         '</div><br/>',
+        `<div id="WMESU-div-longJnMove" class="controls-container"><select id="WMESU-longJnMove" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.LongJnMoveTitle')}">`,
+        buildSelections(_settings.longJnMove),
+        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.LongJnMove')}</div>`,
+        '</div><br/>',
         `<div id="WMESU-div-nonContinuousSelection" class="controls-container"><select id="WMESU-nonContinuousSelection" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.NonContinuousTitle')}">`,
         buildSelections(_settings.nonContinuousSelection),
         `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.NonContinuous')}</div>`,
@@ -473,8 +536,6 @@ async function init() {
         `<b>${I18n.t('wmesu.common.Warning')}:</b> ${I18n.t('wmesu.help.Warning01')}<br><br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Note01')}</div></div>`
     ].join(' '));
     new WazeWrap.Interface.Tab('SU!', $suTab.html(), registerEvents);
-    _updateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
-    _moveNode = require('Waze/Action/MoveNode');
     W.selectionManager.events.register('selectionchanged', null, insertSimplifyStreetGeometryButtons);
     $('#sidebar').on('click', '#WME-SU', e => {
         e.preventDefault();
