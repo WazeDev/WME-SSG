@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.14.01
+// @version      2019.08.15.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,15 +22,7 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.',
-        '<b>NEW:</b> Check for micro dog legs.',
-        '<b>NEW:</b> Restrict to rank 3+.',
-        '<b>NEW:</b> Check if a junction node would move further than 10m.',
-        '<b>CHANGE:</b> New name... (sketch)',
-        '<b>CHANGE:</b> Determine true end point segments and align only junction nodes between them.',
-        '<b>CHANGE:</b> Selecting only one segment will only remove geometry nodes',
-        '<b>CHANGE:</b> Slight performance increase with optimization.',
-        '<b>BUGFIX:</b> Settings now save to storage on initial load.'],
+    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
