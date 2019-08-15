@@ -1,2 +1,2 @@
-# WME-SSG
-WME Simplify Street Geometry
+# WME-SU
+WME Straighten Up!
