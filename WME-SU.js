@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         WME Straighten Up! (beta)
+// @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
 // @version      2019.08.15.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
@@ -15,7 +15,7 @@
 /* global localStorage, window, $, performance, I18n, GM_info, W, WazeWrap */
 
 const ALERT_UPDATE = true,
-    DEBUG = true,
+    DEBUG = false,
     LOAD_BEGIN_TIME = performance.now(),
     // SCRIPT_AUTHOR = GM_info.script.author,
     SCRIPT_FORUM_URL = 'https://www.waze.com/forum/viewtopic.php?f=819&t=289116',
