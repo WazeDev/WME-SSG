@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.15.01
+// @version      2019.08.16.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,7 +22,7 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Initial release.'],
+    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Enhance check for micro doglegs (mDL).'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
@@ -32,6 +32,7 @@ function loadSettingsFromStorage() {
         const defaultSettings = {
                 conflictingNames: 'warning',
                 longJnMove: 'warning',
+                microDogLegs: 'warning',
                 nonContinuousSelection: 'warning',
                 sanityCheck: 'warning',
                 lastSaved: 0,
@@ -153,7 +154,7 @@ function checkNameContinuity(selectedFeatures) {
 
 function distanceBetweenPoints(lon1, lat1, lon2, lat2, measurement) {
     // eslint-disable-next-line no-nested-ternary
-    const multiplier = measurement === 'meters' ? 1000 : measurement === 'miles' ? 0.621371192237334 : 1;
+    const multiplier = measurement === 'meters' ? 1000 : measurement === 'miles' ? 0.621371192237334 : measurement === 'feet' ? 3280.8398950131 : 1;
     lon1 *= 0.017453292519943295; // 0.017453292519943295 = Math.PI / 180
     lat1 *= 0.017453292519943295;
     lon2 *= 0.017453292519943295;
@@ -162,22 +163,33 @@ function distanceBetweenPoints(lon1, lat1, lon2, lat2, measurement) {
     return 12742 * Math.asin(Math.sqrt(((1 - Math.cos(lat2 - lat1)) + (1 - Math.cos(lon2 - lon1)) * Math.cos(lat1) * Math.cos(lat2)) / 2)) * multiplier;
 }
 
-function checkForMicroDogLegs(selectedFeatures) {
-    for (let idx = 0; idx < selectedFeatures.length; idx++) {
-        if (selectedFeatures[idx].geometry.components.length > 2) {
-            const fromNode = W.model.nodes.getObjectById(selectedFeatures[idx].model.attributes.fromNodeID),
-                toNode = W.model.nodes.getObjectById(selectedFeatures[idx].model.attributes.toNodeID);
-            for (let idx2 = 0; idx2 < selectedFeatures[idx].geometry.components.length; idx2++) {
-                const fromNode4326 = WazeWrap.Geometry.ConvertTo4326(fromNode.geometry.x, fromNode.geometry.y),
-                    toNode4326 = WazeWrap.Geometry.ConvertTo4326(toNode.geometry.x, toNode.geometry.y),
-                    testNode4326 = WazeWrap.Geometry.ConvertTo4326(selectedFeatures[idx].geometry.components[idx2].x, selectedFeatures[idx].geometry.components[idx2].y);
-                if (((testNode4326.lon === fromNode4326.lon) && (testNode4326.lat === fromNode4326.lat)) || ((testNode4326.lon === toNode4326.lon) && (testNode4326.lat === toNode4326.lat)))
-                    // eslint-disable-next-line no-continue
-                    continue;
-                if (distanceBetweenPoints(fromNode4326.lon, fromNode4326.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
-                    return true;
-                if (distanceBetweenPoints(toNode4326.lon, toNode4326.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
-                    return true;
+function checkForMicroDogLegs(distinctNodes, singleSegmentId) {
+    if (!distinctNodes || (distinctNodes.length < 1))
+        return false;
+    const nodesChecked = [],
+        nodesObjArr = W.model.nodes.getByIds(distinctNodes);
+    if (!nodesObjArr || (nodesObjArr.length < 1))
+        return false;
+    const checkGeoComp = (geoComp, node4326) => {
+        const testNode4326 = WazeWrap.Geometry.ConvertTo4326(geoComp.x, geoComp.y);
+        if ((node4326.lon !== testNode4326.lon) || (node4326.lat !== testNode4326.lat)) {
+            if (distanceBetweenPoints(node4326.lon, node4326.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
+                return false;
+        }
+        return true;
+    };
+    for (let idx = 0; idx < nodesObjArr.length; idx++) {
+        if (nodesChecked.indexOf(nodesObjArr[idx]) === -1) {
+            nodesChecked.push(nodesObjArr[idx]);
+            const segmentsObjArr = W.model.segments.getByIds(nodesObjArr[idx].getSegmentIds()) || [],
+                node4326 = WazeWrap.Geometry.ConvertTo4326(nodesObjArr[idx].geometry.x, nodesObjArr[idx].geometry.y);
+            for (let idx2 = 0; idx2 < segmentsObjArr.length; idx2++) {
+                const segObj = segmentsObjArr[idx2];
+                if (!singleSegmentId
+                    || (singleSegmentId && (segObj.attributes.id === singleSegmentId))) {
+                    if (!segObj.geometry.components.every(geoComp => checkGeoComp(geoComp, node4326)))
+                        return true;
+                }
             }
         }
     }
@@ -260,17 +272,6 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
             }
         }
         conflictingNamesContinue = true;
-        if (!microDogLegsContinue && (checkForMicroDogLegs(selectedFeatures) === true)) {
-            return WazeWrap.Alerts.confirm(
-                SCRIPT_NAME,
-                I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
-                () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
-                () => { },
-                I18n.t('wmesu.common.Yes'),
-                I18n.t('wmesu.common.No')
-            );
-        }
-        microDogLegsContinue = true;
         const allNodeIds = [],
             dupNodeIds = [];
         let endPointNodeIds,
@@ -296,6 +297,21 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
             }
         });
         const distinctNodes = [...new Set(allNodeIds)];
+        if (!microDogLegsContinue && (checkForMicroDogLegs(distinctNodes, undefined) === true)) {
+            if (_settings.microDogLegs === 'error')
+                return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
+            if (_settings.microDogLegs === 'warning') {
+                return WazeWrap.Alerts.confirm(
+                    SCRIPT_NAME,
+                    I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
+                    () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
+                    () => { },
+                    I18n.t('wmesu.common.Yes'),
+                    I18n.t('wmesu.common.No')
+                );
+            }
+        }
+        microDogLegsContinue = true;
         if (segmentSelection.multipleConnectedComponents === false)
             endPointNodeIds = distinctNodes.filter(nodeId => !dupNodeIds.includes(nodeId));
         else
@@ -365,6 +381,21 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
         const seg = selectedFeatures[0],
             { model } = seg;
         if (model.type === 'segment') {
+            if (!microDogLegsContinue && (checkForMicroDogLegs([model.attributes.fromNodeID, model.attributes.toNodeID], model.attributes.id) === true)) {
+                if (_settings.microDogLegs === 'error')
+                    return WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
+                if (_settings.microDogLegs === 'warning') {
+                    return WazeWrap.Alerts.confirm(
+                        SCRIPT_NAME,
+                        I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
+                        () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
+                        () => { },
+                        I18n.t('wmesu.common.Yes'),
+                        I18n.t('wmesu.common.No')
+                    );
+                }
+            }
+            microDogLegsContinue = true;
             const newGeo = model.geometry.clone();
             // Remove the geometry nodes
             if (newGeo.components.length > 2) {
@@ -409,6 +440,8 @@ function loadTranslations() {
                             + 'Segments not straightened.',
                         LongJnMove: 'One or more of the junction nodes that were to be moved would have been moved further than 10m and you have the long junction node move setting set to '
                             + 'give error. Segments not straightened.',
+                        MicroDogLegs: 'One or more of the junctions nodes in the selection have a geonode within 2 meters. This is usually the sign of a micro dog leg (mDL).<br><br>'
+                            + 'You have the setting for possibe micro doglegs set to give error. Segments not straightened.',
                         NonContinuous: 'You selected segments that are not all connected and have the non-continuous selected segments setting set to give error. Segments not straightened.',
                         TooManySegments: 'You selected too many segments and have the sanity check setting set to give error. Segments not straightened.'
                     },
@@ -431,7 +464,8 @@ function loadTranslations() {
                     prompts: {
                         ConflictingNamesConfirm: 'You selected segments that do not share at least one name in common amongst all the segments. Are you sure you wish to continue straightening?',
                         LongJnMoveConfirm: 'One or more of the junction nodes that are to be moved would be moved further than 10m. Are you sure you wish to continue straightening?',
-                        MicroDogLegsConfirm: 'One or more of the segments you selected have a geonode within 2 meters of the junction node. This is usually the sign of a micro dog leg (mDL).<br><br>'
+                        MicroDogLegsConfirm: 'One or more of the junction nodes in the selection have a geonode within 2 meters. This is usually the sign of a micro dog leg (mDL).<br>'
+                        + 'This geonode could exist on any segment connected to the junction nodes, not just the segments you selected.<br><br>'
                         + '<b>You should not continue until you are certain there are no micro dog legs.<b><br><br>'
                         + 'Are you sure you wish to continue straightening?',
                         NonContinuousConfirm: 'You selected segments that do not all connect. Are you sure you wish to continue straightening?',
@@ -445,6 +479,8 @@ function loadTranslations() {
                         ConflictingNamesTitle: 'Select what to do if the selected segments do not share at least one name among their primary and alternate names (based on name, city and state).',
                         LongJnMove: 'Long junction node moves',
                         LongJnMoveTitle: 'Select what to do if one or more of the junction nodes would move further than 10m.',
+                        MicroDogLegs: 'Possible micro doglegs (mDL)',
+                        MicroDogLegsTitle: 'Select what to do if one or more of the junction nodes in the selection have a geometry node within 2m of itself, which is a possible micro dogleg (mDL).',
                         NonContinuous: 'Non-continuous selected segments',
                         NonContinuousTitle: 'Select what to do if the selected segments are not continuous.',
                         SanityCheck: 'Sanity check',
@@ -480,7 +516,7 @@ function loadTranslations() {
 }
 
 function registerEvents() {
-    $('#WMESU-conflictingNames, #WMESU-longJnMove, #WMESU-nonContinuousSelection, #WMESU-sanityCheck').off().on('change', function () {
+    $('select[id^="WMESU-"]').off().on('change', function () {
         const setting = this.id.substr(6);
         if (this.value.toLowerCase() !== _settings[setting]) {
             _settings[setting] = this.value.toLowerCase();
@@ -513,6 +549,10 @@ async function init() {
         `<div id="WMESU-div-longJnMove" class="controls-container"><select id="WMESU-longJnMove" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.LongJnMoveTitle')}">`,
         buildSelections(_settings.longJnMove),
         `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.LongJnMove')}</div>`,
+        '</div><br/>',
+        `<div id="WMESU-div-microDogLegs" class="controls-container"><select id="WMESU-microDogLegs" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.MicroDogLegsTitle')}">`,
+        buildSelections(_settings.microDogLegs),
+        `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.MicroDogLegs')}</div>`,
         '</div><br/>',
         `<div id="WMESU-div-nonContinuousSelection" class="controls-container"><select id="WMESU-nonContinuousSelection" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.NonContinuousTitle')}">`,
         buildSelections(_settings.nonContinuousSelection),
