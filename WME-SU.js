@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.16.01
+// @version      2019.08.26.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,7 +22,8 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Enhance check for micro doglegs (mDL).'],
+    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Added ru translation.',
+        '<b>CHANGE:</b> Detect if selected segments are already straight.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
@@ -215,12 +216,20 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
         }
         if (nodesToMoveArr && (nodesToMoveArr.length > 0)) {
             const MoveNode = require('Waze/Action/MoveNode');
+            let straightened = false;
             nodesToMoveArr.forEach(node => {
-                logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${node.node.attributes.id} `
-                    + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
-                    + `${I18n.t('wmesu.common.To')}: ${node.nodeGeo.x},${node.nodeGeo.y}`);
-                W.model.actionManager.add(new MoveNode(node.node, node.geometry, node.nodeGeo, node.connectedSegObjs, {}));
+                if ((Math.abs(node.geometry.x - node.nodeGeo.x) > 0.00000001) || (Math.abs(node.geometry.y - node.nodeGeo.y) > 0.00000001)) {
+                    logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${node.node.attributes.id} `
+                        + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
+                        + `${I18n.t('wmesu.common.To')}: ${node.nodeGeo.x},${node.nodeGeo.y}`);
+                    W.model.actionManager.add(new MoveNode(node.node, node.geometry, node.nodeGeo, node.connectedSegObjs, {}));
+                    straightened = true;
+                }
             });
+            if (!straightened) {
+                logDebug(I18n.t('wmesu.log.AllNodesStraight'));
+                return WazeWrap.Alerts.info(SCRIPT_NAME, I18n.t('wmesu.log.AllNodesStraight'));
+            }
         }
     }
     else if (selectedFeatures.length > 1) {
@@ -454,6 +463,7 @@ function loadTranslations() {
                         Step03: 'Click "Straighten up!" button in the sidebar.'
                     },
                     log: {
+                        AllNodesStraight: 'All junction nodes that would be moved are already considered \'straight\'. No junction nodes were moved.',
                         EndPoints: 'End points',
                         MovingJunctionNode: 'Moving junction node',
                         NoSegmentsSelected: 'No segments selected.',
@@ -488,29 +498,80 @@ function loadTranslations() {
                     }
                 },
                 ru: {
-                    SimplifyGeometry: 'Выровнять улицу',
+                    StraightenUp: 'Выпрямить сегменты!',
+                    StraightenUpTitle: 'Нажмите, чтобы выпрямить выбранные сегменты, удалив лишние геометрические точки и переместив узлы перекрёстков в ровную линию.',
+                    common: {
+                        From: 'с',
+                        Help: 'Помощь',
+                        No: 'Нет',
+                        Note: 'Примечание',
+                        NothingMajor: 'Не критично.',
+                        To: 'до',
+                        Warning: 'Предупреждение',
+                        WhatsNew: 'Что нового',
+                        Yes: 'Да'
+                    },
+                    error: {
+                        ConflictingNames: 'Вы выбрали сегменты, которые не имеют хотя бы одного общего названия улицы среди выделенных.'
+                            + 'Сегменты не были выпрямлены.',
+                        LongJnMove: 'Для выпрямления сегментов, их узлы должны быть перемещены более чем на 10 м, но в настройках у вас установлено ограничение перемещения на такое большое '
+                            + 'расстояние. Сегменты не были выпрямлены.',
+                        MicroDogLegs: 'Один или несколько узлов выбранных сегментов имеют точку в пределах 2 метров. Обычно это признак “<a href=”https://wazeopedia.waze.com/wiki/Benelux/Junction_Arrows” target=”blank”>микроискривления</a>”.<br><br>'
+                            + 'В настройках для возможных микроискривлений у вас выставлено ограничение, чтобы выдать ошибку. Сегменты не были выпрямлены.',
+                        NonContinuous: 'Вы выбрали сегменты, которые не соединены между собой, но в настройках у вас установлено ограничение для работы с такими сегментами. Сегменты не были '
+                            + 'выпрямлены.',
+                        TooManySegments: 'Вы выбрали слишком много сегментов, но в настройках у вас включено ограничение на количество одновременно обрабатываемых сегментов. Сегменты не были '
+                            + 'выпрямлены.'
+                    },
+                    help: {
+                        Note01: 'Этот скрипт использует историю действий, поэтому перед их сохранением изменения можно отменить.',
+                        Warning01: 'Настройка любого из этих параметров в положение (Выдать предупреждение, Не предупреждать) может привести к неожиданным результатам. Используйте с осторожностью!',
+                        Step01: 'Выделите начальный сегмент.',
+                        Step02: 'При помощи Alt-кнопки, выделите конечный сегмент.',
+                        Step02note: 'Если выделены не все нужные вам сегменты, при помощи Ctrl-кнопки можно дополнительно выделить или снять выделения сегментов.',
+                        Step03: 'Нажмите ‘Выпрямить сегменты!’ на левой панели.'
+                    },
                     log: {
+                        AllNodesStraight: 'Все узлы, которые нужно было выпрямить, уже выровнены в линию. Сегменты оставлены без изменений.',
                         EndPoints: 'конечные точки',
-                        Segment: I18n.t('objects.segment.name')
+                        MovingJunctionNode: 'Перемещение узла',
+                        NoSegmentsSelected: 'Сегменты не выделены.',
+                        RemovedGeometryNodes: 'Удалены лишние точки сегмента',
+                        Segment: I18n.t('objects.segment.name'),
+                        StraighteningSegments: 'Выпрямление сегментов'
+                    },
+                    prompts: {
+                        ConflictingNamesConfirm: 'Вы выбрали сегменты, которые не имеют хотя бы одного общего названия среди всех сегментов. Вы уверены, что хотите продолжить выпрямление?',
+                        LongJnMoveConfirm: 'Один или несколько узлов будут перемещены более, чем на 10 метров. Вы уверены, что хотите продолжить выпрямление?',
+                        MicroDogLegsConfirm: 'Один или несколько узлов выбранных сегментов имеют точки в пределах 2 метров. Обычно это признак “<a href=”https://wazeopedia.waze.com/wiki/Benelux/Junction_Arrows” target=”blank”>микроискривления</a>”.<br>'
+                        + 'Такая точка может находиться в любом сегменте, соединенном с выбранными вами сегментами и узлами, а не только на них самих.<br><br>'
+                        + '<b>Вы не должны продолжать до тех пор, пока не убедитесь, что у вас нет “микроискривлений”.<b><br><br>'
+                        + 'Вы уверены,что готовы продолжать выпрямление?',
+                        NonContinuousConfirm: 'Вы выбрали сегменты, которые не соединяются друг с другом. Вы уверены, что хотите продолжить выпрямление?',
+                        SanityCheckConfirm: 'Вы выбрали слишком много сегментов. Вы уверены, что хотите продолжить выпрямление?'
+                    },
+                    settings: {
+                        GiveError: 'Выдать ошибку',
+                        GiveWarning: 'Выдать предупреждение',
+                        NoWarning: 'Не предупреждать',
+                        ConflictingNames: 'Сегменты с разными названиями',
+                        ConflictingNamesTitle: 'Выберите, что делать, если выбранные сегменты не содержат хотя бы одно название среди своих основных и альтернативных названий (на основе улицы, '
+                            + 'города и района).',
+                        LongJnMove: 'Перемещение узлов на большие расстояния',
+                        LongJnMoveTitle: 'Выберите, что делать, если один или несколько узлов будут перемещаться дальше, чем на 10 метров.',
+                        MicroDogLegs: 'Допускать “<a href=”https://wazeopedia.waze.com/wiki/Benelux/Junction_Arrows” target=”blank”>микроискривления</a>”',
+                        MicroDogLegsTitle: 'Выберите, что делать, если один или несколько узлов соединения в выделении имеют точку в пределах 2 м от себя, что является возможным “микроискривлением”.',
+                        NonContinuous: 'Не соединённые сегменты',
+                        NonContinuousTitle: 'Выберите, что делать, если выбранные сегменты не соединены друг с другом.',
+                        SanityCheck: 'Ограничение нагрузки',
+                        SanityCheckTitle: 'Выберите, что делать, если вы выбрали слишком много сегментов.'
                     }
                 }
             },
-            locale = I18n.currentLocale(),
-            availTranslations = Object.keys(translations);
+            locale = I18n.currentLocale();
         I18n.translations[locale].wmesu = translations.en;
-        if (availTranslations.indexOf(I18n.currentLocale()) > 0) {
-            Object.keys(translations[locale]).forEach(prop => {
-                if (typeof translations[locale][prop] === 'object') {
-                    Object.keys(translations[locale][prop]).forEach(subProp => {
-                        if (translations[locale][prop][subProp] !== '')
-                            I18n.translations[locale].wmesu[prop][subProp] = translations[locale][prop][subProp];
-                    });
-                }
-                else if (translations[locale][prop] !== '') {
-                    I18n.translations[locale].wmesu[prop] = translations[locale][prop];
-                }
-            });
-        }
+        translations['en-US'] = { ...translations.en };
+        I18n.translations[locale].wmesu = $.extend({}, translations.en, translations[locale]);
         resolve();
     });
 }
