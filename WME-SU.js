@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.08.26.01
+// @version      2019.10.18.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,8 +22,7 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Added ru translation.',
-        '<b>CHANGE:</b> Detect if selected segments are already straight.'],
+    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Add button if loading segment selection via permalink.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
@@ -630,6 +629,8 @@ async function init() {
     ].join(' '));
     new WazeWrap.Interface.Tab('SU!', $suTab.html(), registerEvents);
     W.selectionManager.events.register('selectionchanged', null, insertSimplifyStreetGeometryButtons);
+    if (W.selectionManager.getSegmentSelection().segments.length > 0)
+        insertSimplifyStreetGeometryButtons();
     $('#sidebar').on('click', '#WME-SU', e => {
         e.preventDefault();
         doStraightenSegments();
