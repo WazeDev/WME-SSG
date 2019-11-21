@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.10.18.01
+// @version      2019.11.21.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -27,25 +27,23 @@ const ALERT_UPDATE = true,
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
 
-function loadSettingsFromStorage() {
-    return new Promise(async resolve => {
-        const defaultSettings = {
-                conflictingNames: 'warning',
-                longJnMove: 'warning',
-                microDogLegs: 'warning',
-                nonContinuousSelection: 'warning',
-                sanityCheck: 'warning',
-                lastSaved: 0,
-                lastVersion: undefined
-            },
-            loadedSettings = $.parseJSON(localStorage.getItem(SETTINGS_STORE_NAME));
-        _settings = $.extend({}, defaultSettings, loadedSettings);
-        const serverSettings = await WazeWrap.Remote.RetrieveSettings(SETTINGS_STORE_NAME);
-        if (serverSettings && (serverSettings.lastSaved > _settings.lastSaved))
-            $.extend(_settings, serverSettings);
-        _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
-        resolve();
-    });
+async function loadSettingsFromStorage() {
+    const defaultSettings = {
+            conflictingNames: 'warning',
+            longJnMove: 'warning',
+            microDogLegs: 'warning',
+            nonContinuousSelection: 'warning',
+            sanityCheck: 'warning',
+            lastSaved: 0,
+            lastVersion: undefined
+        },
+        loadedSettings = $.parseJSON(localStorage.getItem(SETTINGS_STORE_NAME));
+    _settings = $.extend({}, defaultSettings, loadedSettings);
+    const serverSettings = await WazeWrap.Remote.RetrieveSettings(SETTINGS_STORE_NAME);
+    if (serverSettings && (serverSettings.lastSaved > _settings.lastSaved))
+        $.extend(_settings, serverSettings);
+    _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
+    return Promise.resolve();
 }
 
 function saveSettingsToStorage() {
