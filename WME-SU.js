@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.12.06.01
+// @version      2019.12.06.02
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,7 +22,7 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> WME v2.43-40-gf367bffa4 compatibility.'],
+    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Move button closer to top of side panel.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
@@ -421,7 +421,11 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
 }
 
 function insertSimplifyStreetGeometryButtons() {
-    $('.edit-restrictions').after(`<button id="WME-SU" class="waze-btn waze-btn-small waze-btn-white" title="${I18n.t('wmesu.StraightenUpTitle')}">${I18n.t('wmesu.StraightenUp')}</button>`);
+    $('.tabs-container').before(
+        '   <div id="WMESU-div-button" style="margin:0 0 10px 10px;">'
+        + `     <button id="WME-SU" class="waze-btn waze-btn-small waze-btn-white" title="${I18n.t('wmesu.StraightenUpTitle')}">${I18n.t('wmesu.StraightenUp')}</button>`
+        + ' </div>'
+    );
 }
 
 function loadTranslations() {
