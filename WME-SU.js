@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.10.18.01
+// @version      2019.12.06.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,30 +22,28 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Add button if loading segment selection via permalink.'],
+    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> WME v2.43-40-gf367bffa4 compatibility.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
 let _settings = {};
 
-function loadSettingsFromStorage() {
-    return new Promise(async resolve => {
-        const defaultSettings = {
-                conflictingNames: 'warning',
-                longJnMove: 'warning',
-                microDogLegs: 'warning',
-                nonContinuousSelection: 'warning',
-                sanityCheck: 'warning',
-                lastSaved: 0,
-                lastVersion: undefined
-            },
-            loadedSettings = $.parseJSON(localStorage.getItem(SETTINGS_STORE_NAME));
-        _settings = $.extend({}, defaultSettings, loadedSettings);
-        const serverSettings = await WazeWrap.Remote.RetrieveSettings(SETTINGS_STORE_NAME);
-        if (serverSettings && (serverSettings.lastSaved > _settings.lastSaved))
-            $.extend(_settings, serverSettings);
-        _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
-        resolve();
-    });
+async function loadSettingsFromStorage() {
+    const defaultSettings = {
+            conflictingNames: 'warning',
+            longJnMove: 'warning',
+            microDogLegs: 'warning',
+            nonContinuousSelection: 'warning',
+            sanityCheck: 'warning',
+            lastSaved: 0,
+            lastVersion: undefined
+        },
+        loadedSettings = $.parseJSON(localStorage.getItem(SETTINGS_STORE_NAME));
+    _settings = $.extend({}, defaultSettings, loadedSettings);
+    const serverSettings = await WazeWrap.Remote.RetrieveSettings(SETTINGS_STORE_NAME);
+    if (serverSettings && (serverSettings.lastSaved > _settings.lastSaved))
+        $.extend(_settings, serverSettings);
+    _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
+    return Promise.resolve();
 }
 
 function saveSettingsToStorage() {
@@ -640,7 +638,7 @@ async function init() {
 }
 
 function bootstrap(tries) {
-    if (W && W.map && W.model && $ && WazeWrap.Ready) {
+    if (W && W.map && W.model && $ && WazeWrap.Ready && require) {
         checkTimeout({ timeout: 'bootstrap' });
         log('Bootstrapping.');
         init();
