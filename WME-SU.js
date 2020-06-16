@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2019.12.06.02
+// @version      2020.06.16.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -12,7 +12,7 @@
 
 // Original credit to jonny3D and impulse200
 
-/* global localStorage, window, $, performance, I18n, GM_info, W, WazeWrap */
+/* global document, localStorage, window, $, MutationObserver, performance, I18n, GM_info, W, WazeWrap */
 
 const ALERT_UPDATE = true,
     DEBUG = false,
@@ -22,9 +22,27 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Move button closer to top of side panel.'],
+    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Keep button displayed during segment editing.'],
     SETTINGS_STORE_NAME = 'WMESU',
-    _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined };
+    _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined },
+    _editPanelObserver = new MutationObserver(mutations => {
+        if ((W.selectionManager.getSegmentSelection().segments.length === 0) || ($('#WMESU-div-button').length > 0))
+            return;
+        const addedChildren = mutations.filter(mutation => (mutation.type === 'childList')).filter(mutatedChild => (mutatedChild.addedNodes.length > 0));
+        if ((addedChildren.filter(
+            addedChild => (
+                (addedChild.addedNodes[0].className
+                    && (addedChild.addedNodes[0].className.indexOf('segment') > -1)
+                )
+                || (addedChild.addedNodes[0].firstElementChild && addedChild.addedNodes[0].firstElementChild.className
+                    && (addedChild.addedNodes[0].firstElementChild.className.indexOf('segment') > -1)
+                )
+            )
+        ).length > 0)) {
+            if ($('#WMESU-div-button').length === 0)
+                insertSimplifyStreetGeometryButtons();
+        }
+    });
 let _settings = {};
 
 async function loadSettingsFromStorage() {
@@ -421,11 +439,9 @@ function doStraightenSegments(sanityContinue, nonContinuousContinue, conflicting
 }
 
 function insertSimplifyStreetGeometryButtons() {
-    $('.tabs-container').before(
-        '   <div id="WMESU-div-button" style="margin:0 0 10px 10px;">'
+    $('   <div id="WMESU-div-button" style="margin:0 0 10px 10px;">'
         + `     <button id="WME-SU" class="waze-btn waze-btn-small waze-btn-white" title="${I18n.t('wmesu.StraightenUpTitle')}">${I18n.t('wmesu.StraightenUp')}</button>`
-        + ' </div>'
-    );
+        + ' </div>').insertAfter($('#edit-panel .segment .selection'));
 }
 
 function loadTranslations() {
@@ -630,7 +646,10 @@ async function init() {
         `<b>${I18n.t('wmesu.common.Warning')}:</b> ${I18n.t('wmesu.help.Warning01')}<br><br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Note01')}</div></div>`
     ].join(' '));
     new WazeWrap.Interface.Tab('SU!', $suTab.html(), registerEvents);
-    W.selectionManager.events.register('selectionchanged', null, insertSimplifyStreetGeometryButtons);
+    logDebug('Enabling MOs.');
+    _editPanelObserver.observe(document.querySelector('#edit-panel > div'), {
+        childList: true, attributes: false, attributeOldValue: false, characterData: false, characterDataOldValue: false, subtree: true
+    });
     if (W.selectionManager.getSegmentSelection().segments.length > 0)
         insertSimplifyStreetGeometryButtons();
     $('#sidebar').on('click', '#WME-SU', e => {
