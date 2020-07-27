@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2020.06.16.01
+// @version      2020.07.27.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -22,7 +22,8 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Keep button displayed during segment editing.'],
+    SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Shortcut to run Straighten Up!',
+        '<b>CHANGE:</b> WME map object references.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined },
     _editPanelObserver = new MutationObserver(mutations => {
@@ -52,6 +53,7 @@ async function loadSettingsFromStorage() {
             microDogLegs: 'warning',
             nonContinuousSelection: 'warning',
             sanityCheck: 'warning',
+            runStraightenUpShortcut: '',
             lastSaved: 0,
             lastVersion: undefined
         },
@@ -72,6 +74,30 @@ function saveSettingsToStorage() {
         localStorage.setItem(SETTINGS_STORE_NAME, JSON.stringify(_settings));
         WazeWrap.Remote.SaveSettings(SETTINGS_STORE_NAME, _settings);
         logDebug('Settings saved.');
+    }
+}
+
+function checkShortcutChanged() {
+    let keys = '';
+    const { shortcut } = W.accelerators.Actions.runStraightenUpShortcut;
+    if (shortcut) {
+        if (shortcut.altKey)
+            keys += 'A';
+        if (shortcut.shiftKey)
+            keys += 'S';
+        if (shortcut.ctrlKey)
+            keys += 'C';
+        if (keys !== '')
+            keys += '+';
+        if (shortcut.keyCode)
+            keys += shortcut.keyCode;
+    }
+    else {
+        keys = '';
+    }
+    if (_settings.runStraightenUpShortcut !== keys) {
+        _settings.runStraightenUpShortcut = keys;
+        saveSettingsToStorage();
     }
 }
 
@@ -656,8 +682,22 @@ async function init() {
         e.preventDefault();
         doStraightenSegments();
     });
+    window.addEventListener('beforeunload', () => { checkShortcutChanged(); }, false);
+    new WazeWrap.Interface.Shortcut(
+        'runStraightenUpShortcut',
+        'Run straighten up',
+        'editing',
+        'Straighten Up',
+        _settings.runStraightenUpShortcut,
+        () => {
+            if ($('#WME-SU').length > 0)
+                $('#WME-SU').click();
+        },
+        null
+    ).add();
     showScriptInfoAlert();
     log(`Fully initialized in ${Math.round(performance.now() - LOAD_BEGIN_TIME)} ms.`);
+    setTimeout(checkShortcutChanged, 10000);
 }
 
 function bootstrap(tries) {
