@@ -23,7 +23,7 @@ const ALERT_UPDATE = true,
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
     SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Shortcut to run Straighten Up!',
-        'CHANGE: WME map object references.'],
+        '<b>CHANGE:</b> WME map object references.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined },
     _editPanelObserver = new MutationObserver(mutations => {
