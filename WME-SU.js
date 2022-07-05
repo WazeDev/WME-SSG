@@ -22,7 +22,7 @@ const ALERT_UPDATE = true,
     SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
     SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
     SCRIPT_VERSION = GM_info.script.version,
-    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Compatibility with latest WME udpate.'],
+    SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> Compatibility with latest WME update.'],
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined },
     _editPanelObserver = new MutationObserver(mutations => {
