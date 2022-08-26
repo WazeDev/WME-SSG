@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version      2022.07.05.01
+// @version      2022.08.26.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
 // @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
@@ -26,20 +26,15 @@ const ALERT_UPDATE = true,
     SETTINGS_STORE_NAME = 'WMESU',
     _timeouts = { bootstrap: undefined, saveSettingsToStorage: undefined },
     _editPanelObserver = new MutationObserver(mutations => {
-        if ((W.selectionManager.getSegmentSelection().segments.length === 0) || ($('#WMESU-div-button').length > 0))
-            return;
-        const addedChildren = mutations.filter(mutation => (mutation.type === 'childList')).filter(mutatedChild => (mutatedChild.addedNodes.length > 0));
-        if ((addedChildren.filter(
-            addedChild => (
-                (addedChild.addedNodes[0].className
-                    && (addedChild.addedNodes[0].className.indexOf('segment') > -1)
-                )
-                || (addedChild.addedNodes[0].firstElementChild && addedChild.addedNodes[0].firstElementChild.className
-                    && (addedChild.addedNodes[0].firstElementChild.className.indexOf('segment') > -1)
-                )
-            )
-        ).length > 0))
-            insertSimplifyStreetGeometryButtons();
+        mutations.forEach(mutation => {
+            for (let i = 0; i < mutation.addedNodes.length; i++) {
+                const addedNode = mutation.addedNodes[i];
+                if (addedNode.nodeType === Node.ELEMENT_NODE) {
+                    if (addedNode.querySelector('#segment-edit-general .form-group.more-actions'))
+                        insertSimplifyStreetGeometryButtons();
+                }
+            }
+        });
     });
 let _settings = {};
 
@@ -492,6 +487,8 @@ function insertSimplifyStreetGeometryButtons(recreate = false) {
     if (($('#WME-SU').length > 0) && recreate)
         $('#WME-SU').remove();
     if ($('#WME-SU').length === 0) {
+        if ($elem.length === 0)
+            return;
         if ($elem.find('wz-button').length > 0) {
             $elem.append($(
                 '<wz-button>',
@@ -714,6 +711,7 @@ async function init() {
     _editPanelObserver.observe(document.querySelector('#edit-panel'), {
         childList: true, attributes: false, attributeOldValue: false, characterData: false, characterDataOldValue: false, subtree: true
     });
+    W.selectionManager.events.register('selectionchanged', null, insertSimplifyStreetGeometryButtons);
     if (W.selectionManager.getSegmentSelection().segments.length > 0)
         insertSimplifyStreetGeometryButtons();
     window.addEventListener('beforeunload', () => { checkShortcutChanged(); }, false);
