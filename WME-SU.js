@@ -30,7 +30,8 @@
             '<b>CHANGE:</b> Updated code to use optional chaining.',
             '<b>CHANGE:</b> Code structure with new linter options.',
             '<b>CHANGE:</b> Code cleanup.',
-            '<b>CHANGE:</b> Utilize @match instead of @include in userscript headers.'
+            '<b>CHANGE:</b> Utilize @match instead of @include in userscript headers.',
+            '<b>CHANGE:</b> WazeWrap compatibility.'
         ],
         SETTINGS_STORE_NAME = 'WMESU',
         _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
@@ -492,7 +493,6 @@
     }
 
     function insertSimplifyStreetGeometryButtons(recreate = false) {
-        debugger;
         const $elem = $('#segment-edit-general .form-group.more-actions');
         if (($('#WME-SU').length > 0) && recreate)
             $('#WME-SU').remove();
