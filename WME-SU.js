@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2023.03.07.01
+// @version      2023.03.15.01
 // @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author       dBsooner
-// @include     /^https:\/\/(www|beta)\.waze\.com\/(?!user\/)(.{2,6}\/)?editor\/?.*$/
+// @match       http*://*.waze.com/*editor*
+// @exclude     http*://*.waze.com/user/editor*
 // @require     https://greasyfork.org/scripts/24851-wazewrap/code/WazeWrap.js
 // @grant        none
 // @license      GPLv3
@@ -27,10 +28,12 @@
         SCRIPT_VERSION = GM_info.script.version,
         SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> New bootstrap routine.',
             '<b>CHANGE:</b> Updated code to use optional chaining.',
-            '<b>CHANGE:</b> Code structure with new linter options.'
+            '<b>CHANGE:</b> Code structure with new linter options.',
+            '<b>CHANGE:</b> Code cleanup.',
+            '<b>CHANGE:</b> Utilize @match instead of @include in userscript headers.'
         ],
         SETTINGS_STORE_NAME = 'WMESU',
-        _timeouts = { saveSettingsToStorage: undefined },
+        _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
         _editPanelObserver = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 for (let i = 0; i < mutation.addedNodes.length; i++) {
@@ -118,20 +121,20 @@
 
     function checkTimeout(obj) {
         if (obj.toIndex) {
-            if (_timeouts[obj.timeout]?.[obj.toIndex] !== undefined) {
+            if (_timeouts[obj.timeout]?.[obj.toIndex]) {
                 window.clearTimeout(_timeouts[obj.timeout][obj.toIndex]);
-                _timeouts[obj.timeout][obj.toIndex] = undefined;
+                delete (_timeouts[obj.timeout][obj.toIndex]);
             }
         }
         else {
-            if (_timeouts[obj.timeout] !== undefined)
+            if (_timeouts[obj.timeout])
                 window.clearTimeout(_timeouts[obj.timeout]);
             _timeouts[obj.timeout] = undefined;
         }
     }
 
     function log(message) { console.log('WME-SU:', message); }
-    // function logError(message) { console.error('WME-SU:', message); }
+    function logError(message) { console.error('WME-SU:', message); }
     function logWarning(message) { console.warn('WME-SU:', message); }
     function logDebug(message) {
         if (DEBUG)
@@ -240,7 +243,7 @@
     function doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, longJnMoveContinue, passedObj) {
         const selectedFeatures = W.selectionManager.getSelectedFeatures(),
             segmentSelection = W.selectionManager.getSegmentSelection();
-        if (longJnMoveContinue && (passedObj !== undefined)) {
+        if (longJnMoveContinue && passedObj) {
             const { segmentsToRemoveGeometryArr } = passedObj,
                 { nodesToMoveArr } = passedObj,
                 { distinctNodes } = passedObj,
@@ -676,7 +679,7 @@
         return rVal;
     }
 
-    async function onWmeReady() {
+    async function onWazeWrapReady() {
         log('Initializing.');
         if (W.loginManager.getUserRank() < 2)
             return;
@@ -736,6 +739,23 @@
         showScriptInfoAlert();
         log(`Fully initialized in ${Math.round(performance.now() - LOAD_BEGIN_TIME)} ms.`);
         setTimeout(checkShortcutChanged, 10000);
+    }
+
+    function onWmeReady(tries = 1) {
+        if (typeof tries === 'object')
+            tries = 1;
+        checkTimeout({ timeout: 'onWmeReady' });
+        if (WazeWrap?.Ready) {
+            logDebug('WazeWrap is ready. Proceeding with initialization.');
+            onWazeWrapReady();
+        }
+        else if (tries < 1000) {
+            logDebug(`WazeWrap is not in Ready state. Retrying ${tries} of 1000.`);
+            _timeouts.onWmeReady = window.setTimeout(onWmeReady, 200, ++tries);
+        }
+        else {
+            logError(new Error('onWmeReady timed out waiting for WazeWrap Ready state.'));
+        }
     }
 
     function onWmeInitialized() {
