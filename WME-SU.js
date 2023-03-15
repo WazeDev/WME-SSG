@@ -30,7 +30,8 @@
             '<b>CHANGE:</b> Updated code to use optional chaining.',
             '<b>CHANGE:</b> Code structure with new linter options.',
             '<b>CHANGE:</b> Code cleanup.',
-            '<b>CHANGE:</b> Utilize @match instead of @include in userscript headers.'
+            '<b>CHANGE:</b> Utilize @match instead of @include in userscript headers.',
+            '<b>CHANGE:</b> WazeWrap compatibility.'
         ],
         SETTINGS_STORE_NAME = 'WMESU',
         _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
@@ -662,7 +663,15 @@
         });
     }
 
-    function registerEvents() {
+    function buildSelections(selected) {
+        const rVal = `<option value="nowarning"${(selected === 'nowarning' ? ' selected' : '')}>${I18n.t('wmesu.settings.NoWarning')}</option>`
+    + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveWarning')}</option>`
+    + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveError')}</option>`;
+        return rVal;
+    }
+
+    function onWazeTabReady() {
+        $('span:contains("SU")').filter(function () { return $(this).parent('a').length > 0; }).parents('li').attr('title', 'Straighten Up!');
         $('select[id^="WMESU-"]').off().on('change', function () {
             const setting = this.id.substr(6);
             if (this.value.toLowerCase() !== _settings[setting]) {
@@ -670,13 +679,6 @@
                 saveSettingsToStorage();
             }
         });
-    }
-
-    function buildSelections(selected) {
-        const rVal = `<option value="nowarning"${(selected === 'nowarning' ? ' selected' : '')}>${I18n.t('wmesu.settings.NoWarning')}</option>`
-    + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveWarning')}</option>`
-    + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveError')}</option>`;
-        return rVal;
     }
 
     async function onWazeWrapReady() {
@@ -714,8 +716,7 @@
             `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step03')}</p></li></ol></div>`,
             `<b>${I18n.t('wmesu.common.Warning')}:</b> ${I18n.t('wmesu.help.Warning01')}<br><br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Note01')}</div></div>`
         ].join(' '));
-        // eslint-disable-next-line no-new
-        new WazeWrap.Interface.Tab('SU!', $suTab.html(), registerEvents);
+        WazeWrap.Interface.Tab('SU!', $suTab.html(), onWazeTabReady, 'SU!');
         logDebug('Enabling MOs.');
         _editPanelObserver.observe(document.querySelector('#edit-panel'), {
             childList: true, attributes: false, attributeOldValue: false, characterData: false, characterDataOldValue: false, subtree: true
