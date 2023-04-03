@@ -1,39 +1,43 @@
 // ==UserScript==
-// @name         WME Straighten Up! (beta)
+// @name        WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version      2023.03.15.01
-// @description  Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
-// @author       dBsooner
+// @version     2023.04.03.01
+// @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
+// @author      dBsooner
 // @match       http*://*.waze.com/*editor*
 // @exclude     http*://*.waze.com/user/editor*
 // @require     https://greasyfork.org/scripts/24851-wazewrap/code/WazeWrap.js
-// @grant        none
-// @license      GPLv3
+// @grant       GM_xmlhttpRequest
+// @connect     greasyfork.org
+// @license     GPLv3
 // ==/UserScript==
 
 // Original credit to jonny3D and impulse200
 
-/* global $, I18n, GM_info, W, WazeWrap */
+/* global $, I18n, GM_info, GM_xmlhttpRequest, W, WazeWrap */
 
 (function () {
     'use strict';
 
-    const ALERT_UPDATE = true,
-        DEBUG = true,
-        LOAD_BEGIN_TIME = performance.now(),
+    // eslint-disable-next-line no-nested-ternary
+    const _SCRIPT_SHORT_NAME = `WME SU!${(/beta/.test(GM_info.script.name) ? ' β' : /\(DEV\)/i.test(GM_info.script.name) ? ' Ω' : '')}`,
+        _SCRIPT_LONG_NAME = GM_info.script.name,
+        _IS_ALPHA_VERSION = /[Ω]/.test(_SCRIPT_SHORT_NAME),
+        _IS_BETA_VERSION = /[β]/.test(_SCRIPT_SHORT_NAME),
         // SCRIPT_AUTHOR = GM_info.script.author,
-        SCRIPT_FORUM_URL = 'https://www.waze.com/forum/viewtopic.php?f=819&t=289116',
-        SCRIPT_GF_URL = 'https://greasyfork.org/en/scripts/388349-wme-straighten-up',
-        SCRIPT_NAME = GM_info.script.name.replace('(beta)', 'β'),
-        SCRIPT_VERSION = GM_info.script.version,
-        SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> New bootstrap routine.',
-            '<b>CHANGE:</b> Updated code to use optional chaining.',
-            '<b>CHANGE:</b> Code structure with new linter options.',
-            '<b>CHANGE:</b> Code cleanup.',
-            '<b>CHANGE:</b> Utilize @match instead of @include in userscript headers.',
-            '<b>CHANGE:</b> WazeWrap compatibility.'
+        _PROD_URL = 'https://greasyfork.org/scripts/388349-wme-straighten-up/code/WME%20Straighten%20Up!.user.js',
+        _PROD_META_URL = 'https://greasyfork.org/scripts/388349-wme-straighten-up/code/WME%20Straighten%20Up!.meta.js',
+        _FORUM_URL = 'https://www.waze.com/forum/viewtopic.php?f=819&t=289116',
+        _SETTINGS_STORE_NAME = 'WMESU',
+        _BETA_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzUxYzJWeUxtcHo=',
+        _BETA_META_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzV0WlhSaExtcHo=',
+        _ALERT_UPDATE = true,
+        _SCRIPT_VERSION = GM_info.script.version.toString(),
+        _SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Check for updated version on load.',
+            '<b>CHANGE:</b> Future (possible) WME changes preparation.'
         ],
-        SETTINGS_STORE_NAME = 'WMESU',
+        _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
+        _LOAD_BEGIN_TIME = performance.now(),
         _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
         _editPanelObserver = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
@@ -46,7 +50,8 @@
                 }
             });
         });
-    let _settings = {};
+    let _lastVersionChecked = '0',
+        _settings = {};
 
     async function loadSettingsFromStorage() {
         const defaultSettings = {
@@ -59,9 +64,9 @@
                 lastSaved: 0,
                 lastVersion: undefined
             },
-            loadedSettings = $.parseJSON(localStorage.getItem(SETTINGS_STORE_NAME));
+            loadedSettings = $.parseJSON(localStorage.getItem(_SETTINGS_STORE_NAME));
         _settings = $.extend({}, defaultSettings, loadedSettings);
-        const serverSettings = await WazeWrap.Remote.RetrieveSettings(SETTINGS_STORE_NAME);
+        const serverSettings = await WazeWrap.Remote.RetrieveSettings(_SETTINGS_STORE_NAME);
         if (serverSettings?.lastSaved > _settings.lastSaved)
             $.extend(_settings, serverSettings);
         _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
@@ -71,10 +76,10 @@
     function saveSettingsToStorage() {
         checkTimeout({ timeout: 'saveSettingsToStorage' });
         if (localStorage) {
-            _settings.lastVersion = SCRIPT_VERSION;
+            _settings.lastVersion = _SCRIPT_VERSION;
             _settings.lastSaved = Date.now();
-            localStorage.setItem(SETTINGS_STORE_NAME, JSON.stringify(_settings));
-            WazeWrap.Remote.SaveSettings(SETTINGS_STORE_NAME, _settings);
+            localStorage.setItem(_SETTINGS_STORE_NAME, JSON.stringify(_settings));
+            WazeWrap.Remote.SaveSettings(_SETTINGS_STORE_NAME, _settings);
             logDebug('Settings saved.');
         }
     }
@@ -104,19 +109,19 @@
     }
 
     function showScriptInfoAlert() {
-        if (ALERT_UPDATE && (SCRIPT_VERSION !== _settings.lastVersion)) {
+        if (_ALERT_UPDATE && (_SCRIPT_VERSION !== _settings.lastVersion)) {
             let releaseNotes = '';
             releaseNotes += `<p>${I18n.t('wmesu.common.WhatsNew')}:</p>`;
-            if (SCRIPT_VERSION_CHANGES.length > 0) {
+            if (_SCRIPT_VERSION_CHANGES.length > 0) {
                 releaseNotes += '<ul>';
-                for (let idx = 0; idx < SCRIPT_VERSION_CHANGES.length; idx++)
-                    releaseNotes += `<li>${SCRIPT_VERSION_CHANGES[idx]}`;
+                for (let idx = 0; idx < _SCRIPT_VERSION_CHANGES.length; idx++)
+                    releaseNotes += `<li>${_SCRIPT_VERSION_CHANGES[idx]}`;
                 releaseNotes += '</ul>';
             }
             else {
                 releaseNotes += `<ul><li>${I18n.t('wmesu.common.NothingMajor')}</ul>`;
             }
-            WazeWrap.Interface.ShowScriptUpdate(SCRIPT_NAME, SCRIPT_VERSION, releaseNotes, SCRIPT_GF_URL, SCRIPT_FORUM_URL);
+            WazeWrap.Interface.ShowScriptUpdate(_SCRIPT_SHORT_NAME, _SCRIPT_VERSION, releaseNotes, (_IS_BETA_VERSION ? dec(_BETA_URL) : _PROD_URL).replace(/code\/.*\.js/, ''), _FORUM_URL);
         }
     }
 
@@ -134,12 +139,16 @@
         }
     }
 
-    function log(message) { console.log('WME-SU:', message); }
-    function logError(message) { console.error('WME-SU:', message); }
-    function logWarning(message) { console.warn('WME-SU:', message); }
-    function logDebug(message) {
-        if (DEBUG)
-            console.log('WME-SU:', message);
+    function log(message, data = '') { console.log(`${_SCRIPT_SHORT_NAME}:`, message, data); }
+    function logError(message, data = '') { console.error(`${_SCRIPT_SHORT_NAME}:`, new Error(message), data); }
+    function logWarning(message, data = '') { console.warn(`${_SCRIPT_SHORT_NAME}:`, message, data); }
+    function logDebug(message, data = '') {
+        if (_DEBUG)
+            log(message, data);
+    }
+
+    function dec(s = '') {
+        return atob(atob(s));
     }
 
     // рассчитаем пересчечение перпендикуляра точки с наклонной прямой
@@ -164,17 +173,17 @@
         return d;
     }
 
-    function checkNameContinuity(selectedFeatures) {
+    function checkNameContinuity(segmentSelectionArr = []) {
         const streetIds = [];
-        for (let idx = 0; idx < selectedFeatures.length; idx++) {
+        for (let idx = 0; idx < segmentSelectionArr.length; idx++) {
             if (idx > 0) {
-                if ((selectedFeatures[idx].model.attributes.primaryStreetID > 0) && (streetIds.indexOf(selectedFeatures[idx].model.attributes.primaryStreetID) > -1))
+                if ((segmentSelectionArr[idx].attributes.primaryStreetID > 0) && (streetIds.indexOf(segmentSelectionArr[idx].attributes.primaryStreetID) > -1))
                 // eslint-disable-next-line no-continue
                     continue;
-                if (selectedFeatures[idx].model.attributes.streetIDs.length > 0) {
+                if (segmentSelectionArr[idx].attributes.streetIDs.length > 0) {
                     let included = false;
-                    for (let idx2 = 0; idx2 < selectedFeatures[idx].model.attributes.streetIDs.length; idx2++) {
-                        if (streetIds.indexOf(selectedFeatures[idx].model.attributes.streetIDs[idx2]) > -1) {
+                    for (let idx2 = 0; idx2 < segmentSelectionArr[idx].attributes.streetIDs.length; idx2++) {
+                        if (streetIds.indexOf(segmentSelectionArr[idx].attributes.streetIDs[idx2]) > -1) {
                             included = true;
                             break;
                         }
@@ -188,10 +197,10 @@
                 return false;
             }
             if (idx === 0) {
-                if (selectedFeatures[idx].model.attributes.primaryStreetID > 0)
-                    streetIds.push(selectedFeatures[idx].model.attributes.primaryStreetID);
-                if (selectedFeatures[idx].model.attributes.streetIDs.length > 0)
-                    selectedFeatures[idx].model.attributes.streetIDs.forEach((streetId) => { streetIds.push(streetId); });
+                if (segmentSelectionArr[idx].attributes.primaryStreetID > 0)
+                    streetIds.push(segmentSelectionArr[idx].attributes.primaryStreetID);
+                if (segmentSelectionArr[idx].attributes.streetIDs.length > 0)
+                    segmentSelectionArr[idx].attributes.streetIDs.forEach((streetId) => { streetIds.push(streetId); });
             }
         }
         return true;
@@ -242,8 +251,7 @@
     }
 
     function doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, longJnMoveContinue, passedObj) {
-        const selectedFeatures = W.selectionManager.getSelectedFeatures(),
-            segmentSelection = W.selectionManager.getSegmentSelection();
+        const segmentSelection = W.selectionManager.getSegmentSelection();
         if (longJnMoveContinue && passedObj) {
             const { segmentsToRemoveGeometryArr } = passedObj,
                 { nodesToMoveArr } = passedObj,
@@ -253,9 +261,9 @@
             logDebug(`${I18n.t('wmesu.log.EndPoints')}: ${endPointNodeIds.join(' & ')}`);
             if (segmentsToRemoveGeometryArr?.length > 0) {
                 const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
-                segmentsToRemoveGeometryArr.forEach((segment) => {
-                    W.model.actionManager.add(new UpdateSegmentGeometry(segment.model, segment.model.geometry, segment.newGeo));
-                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${segment.model.attributes.id}`);
+                segmentsToRemoveGeometryArr.forEach((obj) => {
+                    W.model.actionManager.add(new UpdateSegmentGeometry(obj.segment, obj.geometry, obj.newGeo));
+                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${obj.segment.attributes.id}`);
                 });
             }
             if (nodesToMoveArr?.length > 0) {
@@ -272,23 +280,23 @@
                 });
                 if (!straightened) {
                     logDebug(I18n.t('wmesu.log.AllNodesStraight'));
-                    WazeWrap.Alerts.info(SCRIPT_NAME, I18n.t('wmesu.log.AllNodesStraight'));
+                    WazeWrap.Alerts.info(_SCRIPT_SHORT_NAME, I18n.t('wmesu.log.AllNodesStraight'));
                     return;
                 }
             }
         }
-        else if (selectedFeatures.length > 1) {
+        else if (segmentSelection.segments.length > 1) {
             const segmentsToRemoveGeometryArr = [],
                 nodesToMoveArr = [];
-            if ((selectedFeatures.length > 10) && !sanityContinue) {
+            if ((segmentSelection.segments.length > 10) && !sanityContinue) {
                 if (_settings.sanityCheck === 'error') {
-                    WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.TooManySegments'));
+                    WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.TooManySegments'));
                     insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (_settings.sanityCheck === 'warning') {
                     WazeWrap.Alerts.confirm(
-                        SCRIPT_NAME,
+                        _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.SanityCheckConfirm'),
                         () => { doStraightenSegments(true, false, false, false, false, undefined); },
                         () => { insertSimplifyStreetGeometryButtons(true); },
@@ -301,13 +309,13 @@
             sanityContinue = true;
             if ((segmentSelection.multipleConnectedComponents === true) && !nonContinuousContinue) {
                 if (_settings.nonContinuousSelection === 'error') {
-                    WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.NonContinuous'));
+                    WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.NonContinuous'));
                     insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (_settings.nonContinuousSelection === 'warning') {
                     WazeWrap.Alerts.confirm(
-                        SCRIPT_NAME,
+                        _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.NonContinuousConfirm'),
                         () => { doStraightenSegments(sanityContinue, true, false, false, false, undefined); },
                         () => { insertSimplifyStreetGeometryButtons(true); },
@@ -319,15 +327,15 @@
             }
             nonContinuousContinue = true;
             if (_settings.conflictingNames !== 'nowarning') {
-                const continuousNames = checkNameContinuity(selectedFeatures);
+                const continuousNames = checkNameContinuity(segmentSelection.segments);
                 if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'error')) {
-                    WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.ConflictingNames'));
+                    WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.ConflictingNames'));
                     insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'warning')) {
                     WazeWrap.Alerts.confirm(
-                        SCRIPT_NAME,
+                        _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.ConflictingNamesConfirm'),
                         () => { doStraightenSegments(sanityContinue, nonContinuousContinue, true, false, false, undefined); },
                         () => { insertSimplifyStreetGeometryButtons(true); },
@@ -342,17 +350,17 @@
                 dupNodeIds = [];
             let endPointNodeIds,
                 longMove = false;
-            for (let idx = 0; idx < selectedFeatures.length; idx++) {
-                allNodeIds.push(selectedFeatures[idx].model.attributes.fromNodeID);
-                allNodeIds.push(selectedFeatures[idx].model.attributes.toNodeID);
-                if (selectedFeatures[idx].model.type === 'segment') {
-                    const newGeo = selectedFeatures[idx].model.geometry.clone();
+            for (let idx = 0; idx < segmentSelection.segments.length; idx++) {
+                allNodeIds.push(segmentSelection.segments[idx].attributes.fromNodeID);
+                allNodeIds.push(segmentSelection.segments[idx].attributes.toNodeID);
+                if (segmentSelection.segments[idx].type === 'segment') {
+                    const newGeo = segmentSelection.segments[idx].geometry.clone();
                     // Remove the geometry nodes
                     if (newGeo.components.length > 2) {
                         newGeo.components.splice(1, newGeo.components.length - 2);
                         newGeo.components[0].calculateBounds();
                         newGeo.components[1].calculateBounds();
-                        segmentsToRemoveGeometryArr.push({ model: selectedFeatures[idx].model, geometry: selectedFeatures[idx].model.geometry, newGeo });
+                        segmentsToRemoveGeometryArr.push({ segment: segmentSelection.segments[idx], geometry: segmentSelection.segments[idx].geometry, newGeo });
                     }
                 }
             }
@@ -365,13 +373,13 @@
             const distinctNodes = [...new Set(allNodeIds)];
             if (!microDogLegsContinue && (checkForMicroDogLegs(distinctNodes, undefined) === true)) {
                 if (_settings.microDogLegs === 'error') {
-                    WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
+                    WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
                     insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (_settings.microDogLegs === 'warning') {
                     WazeWrap.Alerts.confirm(
-                        SCRIPT_NAME,
+                        _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
                         () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
                         () => { insertSimplifyStreetGeometryButtons(true); },
@@ -385,7 +393,7 @@
             if (segmentSelection.multipleConnectedComponents === false)
                 endPointNodeIds = distinctNodes.filter((nodeId) => !dupNodeIds.includes(nodeId));
             else
-                endPointNodeIds = [selectedFeatures[0].model.attributes.fromNodeID, selectedFeatures[(selectedFeatures.length - 1)].model.attributes.toNodeID];
+                endPointNodeIds = [segmentSelection.segments[0].attributes.fromNodeID, segmentSelection.segments[(segmentSelection.segments.length - 1)].attributes.toNodeID];
             const endPointNodeObjs = W.model.nodes.getByIds(endPointNodeIds),
                 endPointNode1Geo = endPointNodeObjs[0].geometry.clone(),
                 endPointNode2Geo = endPointNodeObjs[1].geometry.clone();
@@ -428,13 +436,13 @@
                 }
             });
             if (longMove && (_settings.longJnMove === 'error')) {
-                WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.LongJnMove'));
+                WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.LongJnMove'));
                 insertSimplifyStreetGeometryButtons(true);
                 return;
             }
             if (longMove && (_settings.longJnMove === 'warning')) {
                 WazeWrap.Alerts.confirm(
-                    SCRIPT_NAME,
+                    _SCRIPT_SHORT_NAME,
                     I18n.t('wmesu.prompts.LongJnMoveConfirm'),
                     () => {
                         doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, true, {
@@ -450,20 +458,19 @@
             doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, true, {
                 segmentsToRemoveGeometryArr, nodesToMoveArr, distinctNodes, endPointNodeIds
             });
-        } // W.selectionManager.selectedItems.length > 0
-        else if (selectedFeatures.length === 1) {
-            const seg = selectedFeatures[0],
-                { model } = seg;
-            if (model.type === 'segment') {
-                if (!microDogLegsContinue && (checkForMicroDogLegs([model.attributes.fromNodeID, model.attributes.toNodeID], model.attributes.id) === true)) {
+        }
+        else if (segmentSelection.segments.length === 1) {
+            const seg = segmentSelection.segments[0];
+            if (seg.type === 'segment') {
+                if (!microDogLegsContinue && (checkForMicroDogLegs([seg.attributes.fromNodeID, seg.attributes.toNodeID], seg.attributes.id) === true)) {
                     if (_settings.microDogLegs === 'error') {
-                        WazeWrap.Alerts.error(SCRIPT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
+                        WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
                         insertSimplifyStreetGeometryButtons(true);
                         return;
                     }
                     if (_settings.microDogLegs === 'warning') {
                         WazeWrap.Alerts.confirm(
-                            SCRIPT_NAME,
+                            _SCRIPT_SHORT_NAME,
                             I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
                             () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
                             () => { insertSimplifyStreetGeometryButtons(true); },
@@ -474,15 +481,15 @@
                     }
                 }
                 microDogLegsContinue = true;
-                const newGeo = model.geometry.clone();
+                const newGeo = seg.geometry.clone();
                 // Remove the geometry nodes
                 if (newGeo.components.length > 2) {
                     const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
                     newGeo.components.splice(1, newGeo.components.length - 2);
                     newGeo.components[0].calculateBounds();
                     newGeo.components[1].calculateBounds();
-                    W.model.actionManager.add(new UpdateSegmentGeometry(model, model.geometry, newGeo));
-                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${model.attributes.id}`);
+                    W.model.actionManager.add(new UpdateSegmentGeometry(seg, seg.geometry, newGeo));
+                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${seg.attributes.id}`);
                 }
             }
         }
@@ -665,8 +672,8 @@
 
     function buildSelections(selected) {
         const rVal = `<option value="nowarning"${(selected === 'nowarning' ? ' selected' : '')}>${I18n.t('wmesu.settings.NoWarning')}</option>`
-    + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveWarning')}</option>`
-    + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveError')}</option>`;
+            + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveWarning')}</option>`
+            + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveError')}</option>`;
         return rVal;
     }
 
@@ -681,16 +688,49 @@
         });
     }
 
+    function checkSuVersion() {
+        if (_IS_ALPHA_VERSION)
+            return;
+        try {
+            const metaUrl = _IS_BETA_VERSION ? dec(_BETA_META_URL) : _PROD_META_URL;
+            GM_xmlhttpRequest({
+                url: metaUrl,
+                onload(res) {
+                    const latestVersion = res.responseText.match(/@version\s+(.*)/)[1];
+                    if ((latestVersion > _SCRIPT_VERSION) && (latestVersion > (_lastVersionChecked || '0'))) {
+                        _lastVersionChecked = latestVersion;
+                        WazeWrap.Alerts.info(
+                            _SCRIPT_LONG_NAME,
+                            `<a href="${(_IS_BETA_VERSION ? dec(_BETA_URL) : _PROD_URL)}" target = "_blank">Version ${latestVersion}</a> is available.<br>Update now to get the latest features and fixes.`,
+                            true,
+                            false
+                        );
+                    }
+                },
+                onerror(res) {
+                    // Silently fail with an error message in the console.
+                    logError('Upgrade version check:', res);
+                }
+            });
+        }
+        catch (err) {
+            // Silently fail with an error message in the console.
+            logError('Upgrade version check:', err);
+        }
+    }
+
     async function onWazeWrapReady() {
         log('Initializing.');
+        checkSuVersion();
+        setInterval(checkSuVersion, 60 * 60 * 1000);
         if (W.loginManager.getUserRank() < 2)
             return;
         await loadSettingsFromStorage();
         await loadTranslations();
         const $suTab = $('<div>', { style: 'padding:8px 16px', id: 'WMESUSettings' });
         $suTab.html([
-            `<div style="margin-bottom:0px;font-size:13px;font-weight:600;">${SCRIPT_NAME}</div>`,
-            `<div style="margin-top:0px;font-size:11px;font-weight:600;color:#aaa">${SCRIPT_VERSION}</div>`,
+            `<div style="margin-bottom:0px;font-size:13px;font-weight:600;">${_SCRIPT_SHORT_NAME}</div>`,
+            `<div style="margin-top:0px;font-size:11px;font-weight:600;color:#aaa">${_SCRIPT_VERSION}</div>`,
             `<div id="WMESU-div-conflictingNames" class="controls-container"><select id="WMESU-conflictingNames" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.ConflictingNamesTitle')}">`,
             buildSelections(_settings.conflictingNames),
             `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.ConflictingNames')}</div>`,
@@ -738,7 +778,7 @@
             null
         ).add();
         showScriptInfoAlert();
-        log(`Fully initialized in ${Math.round(performance.now() - LOAD_BEGIN_TIME)} ms.`);
+        log(`Fully initialized in ${Math.round(performance.now() - _LOAD_BEGIN_TIME)} ms.`);
         setTimeout(checkShortcutChanged, 10000);
     }
 
@@ -755,7 +795,7 @@
             _timeouts.onWmeReady = window.setTimeout(onWmeReady, 200, ++tries);
         }
         else {
-            logError(new Error('onWmeReady timed out waiting for WazeWrap Ready state.'));
+            logError('onWmeReady timed out waiting for WazeWrap Ready state.');
         }
     }
 
