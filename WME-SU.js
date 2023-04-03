@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name        WME Straighten Up! (beta)
+// @name        WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
 // @version     2023.04.03.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
