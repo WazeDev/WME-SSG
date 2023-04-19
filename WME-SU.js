@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version     2023.04.03.01
+// @version     2023.04.19.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author      dBsooner
 // @match       http*://*.waze.com/*editor*
@@ -33,9 +33,7 @@
         _BETA_META_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzV0WlhSaExtcHo=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['<b>NEW:</b> Check for updated version on load.',
-            '<b>CHANGE:</b> Future (possible) WME changes preparation.'
-        ],
+        _SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> WME production now includes function from WME beta.'],
         _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
         _LOAD_BEGIN_TIME = performance.now(),
         _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
