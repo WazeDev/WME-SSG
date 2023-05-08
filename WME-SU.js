@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version     2023.04.19.01
+// @version     2023.05.08.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author      dBsooner
 // @match       http*://*.waze.com/*editor*
@@ -14,7 +14,7 @@
 
 // Original credit to jonny3D and impulse200
 
-/* global $, I18n, GM_info, GM_xmlhttpRequest, W, WazeWrap */
+/* global I18n, GM_info, GM_xmlhttpRequest, W, WazeWrap */
 
 (function () {
     'use strict';
@@ -25,31 +25,109 @@
         _IS_ALPHA_VERSION = /[Ω]/.test(_SCRIPT_SHORT_NAME),
         _IS_BETA_VERSION = /[β]/.test(_SCRIPT_SHORT_NAME),
         // SCRIPT_AUTHOR = GM_info.script.author,
-        _PROD_URL = 'https://greasyfork.org/scripts/388349-wme-straighten-up/code/WME%20Straighten%20Up!.user.js',
-        _PROD_META_URL = 'https://greasyfork.org/scripts/388349-wme-straighten-up/code/WME%20Straighten%20Up!.meta.js',
+        _PROD_DL_URL = 'https://greasyfork.org/scripts/388349-wme-straighten-up/code/WME%20Straighten%20Up!.user.js',
         _FORUM_URL = 'https://www.waze.com/forum/viewtopic.php?f=819&t=289116',
         _SETTINGS_STORE_NAME = 'WMESU',
-        _BETA_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzUxYzJWeUxtcHo=',
-        _BETA_META_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzV0WlhSaExtcHo=',
+        _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzUxYzJWeUxtcHo=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['<b>CHANGE:</b> WME production now includes function from WME beta.'],
+        _SCRIPT_VERSION_CHANGES = ['CHANGE: Reverted to 100% vanilla JavaScript, removing reliance on jQuery.',
+            'CHANGE: Switch to WazeWrap for script update checking.'
+        ],
         _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
         _LOAD_BEGIN_TIME = performance.now(),
+        _elems = {
+            b: document.createElement('b'),
+            br: document.createElement('br'),
+            div: document.createElement('div'),
+            li: document.createElement('li'),
+            ol: document.createElement('ol'),
+            option: document.createElement('option'),
+            p: document.createElement('p'),
+            select: document.createElement('select'),
+            'wz-button': document.createElement('wz-button')
+        },
         _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
         _editPanelObserver = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
-                for (let i = 0; i < mutation.addedNodes.length; i++) {
-                    const addedNode = mutation.addedNodes[i];
-                    if (addedNode.nodeType === Node.ELEMENT_NODE) {
-                        if (addedNode.querySelector('#segment-edit-general .form-group.more-actions'))
+                for (let i = 0, { length } = mutation.addedNodes; i < length; i++) {
+                    if (mutation.addedNodes[i].nodeType === Node.ELEMENT_NODE) {
+                        if (mutation.addedNodes[i].querySelector('#segment-edit-general .form-group.more-actions'))
                             insertSimplifyStreetGeometryButtons();
                     }
                 }
             });
         });
-    let _lastVersionChecked = '0',
-        _settings = {};
+    let _settings = {};
+
+    function log(message, data = '') { console.log(`${_SCRIPT_SHORT_NAME}:`, message, data); }
+    function logError(message, data = '') { console.error(`${_SCRIPT_SHORT_NAME}:`, new Error(message), data); }
+    function logWarning(message, data = '') { console.warn(`${_SCRIPT_SHORT_NAME}:`, message, data); }
+    function logDebug(message, data = '') {
+        if (_DEBUG)
+            log(message, data);
+    }
+
+    function $extend(...args) {
+        const extended = {},
+            deep = Object.prototype.toString.call(args[0]) === '[object Boolean]' ? args[0] : false,
+            merge = function (obj) {
+                Object.keys(obj).forEach((prop) => {
+                    if (Object.prototype.hasOwnProperty.call(obj, prop)) {
+                        if (deep && Object.prototype.toString.call(obj[prop]) === '[object Object]')
+                            extended[prop] = $extend(true, extended[prop], obj[prop]);
+                        else if ((obj[prop] !== undefined) && (obj[prop] !== null))
+                            extended[prop] = obj[prop];
+                    }
+                });
+            };
+        for (let i = deep ? 1 : 0, { length } = args; i < length; i++) {
+            if (args[i])
+                merge(args[i]);
+        }
+        return extended;
+    }
+
+    function createElem(type = '', attrs = {}, eventListener = []) {
+        const el = _elems[type]?.cloneNode(false) || _elems.div.cloneNode(false),
+            applyEventListeners = function ([evt, cb]) {
+                return this.addEventListener(evt, cb);
+            };
+        Object.keys(attrs).forEach((attr) => {
+            if ((attr === 'disabled') || (attr === 'checked') || (attr === 'selected') || (attr === 'textContent') || (attr === 'innerHTML'))
+                el[attr] = attrs[attr];
+            else
+                el.setAttribute(attr, attrs[attr]);
+        });
+        if (eventListener.length > 0) {
+            eventListener.forEach((obj) => {
+                Object.entries(obj).map(applyEventListeners.bind(el));
+            });
+        }
+        return el;
+    }
+
+    function createTextNode(str = '') {
+        return document.createTextNode(str);
+    }
+
+    function dec(s = '') {
+        return atob(atob(s));
+    }
+
+    function checkTimeout(obj) {
+        if (obj.toIndex) {
+            if (_timeouts[obj.timeout]?.[obj.toIndex]) {
+                window.clearTimeout(_timeouts[obj.timeout][obj.toIndex]);
+                delete (_timeouts[obj.timeout][obj.toIndex]);
+            }
+        }
+        else {
+            if (_timeouts[obj.timeout])
+                window.clearTimeout(_timeouts[obj.timeout]);
+            _timeouts[obj.timeout] = undefined;
+        }
+    }
 
     async function loadSettingsFromStorage() {
         const defaultSettings = {
@@ -62,11 +140,11 @@
                 lastSaved: 0,
                 lastVersion: undefined
             },
-            loadedSettings = $.parseJSON(localStorage.getItem(_SETTINGS_STORE_NAME));
-        _settings = $.extend({}, defaultSettings, loadedSettings);
+            loadedSettings = JSON.parse(localStorage.getItem(_SETTINGS_STORE_NAME));
+        _settings = $extend(true, {}, defaultSettings, loadedSettings);
         const serverSettings = await WazeWrap.Remote.RetrieveSettings(_SETTINGS_STORE_NAME);
         if (serverSettings?.lastSaved > _settings.lastSaved)
-            $.extend(_settings, serverSettings);
+            $extend(_settings, serverSettings);
         _timeouts.saveSettingsToStorage = window.setTimeout(saveSettingsToStorage, 5000);
         return Promise.resolve();
     }
@@ -108,45 +186,19 @@
 
     function showScriptInfoAlert() {
         if (_ALERT_UPDATE && (_SCRIPT_VERSION !== _settings.lastVersion)) {
-            let releaseNotes = '';
-            releaseNotes += `<p>${I18n.t('wmesu.common.WhatsNew')}:</p>`;
+            const divElemRoot = createElem('div');
+            divElemRoot.appendChild(createElem('p', { textContent: 'What\'s New:' }));
+            const ulElem = createElem('ul');
             if (_SCRIPT_VERSION_CHANGES.length > 0) {
-                releaseNotes += '<ul>';
-                for (let idx = 0; idx < _SCRIPT_VERSION_CHANGES.length; idx++)
-                    releaseNotes += `<li>${_SCRIPT_VERSION_CHANGES[idx]}`;
-                releaseNotes += '</ul>';
+                for (let idx = 0, { length } = _SCRIPT_VERSION_CHANGES; idx < length; idx++)
+                    ulElem.appendChild(createElem('li', { innerHTML: _SCRIPT_VERSION_CHANGES[idx] }));
             }
             else {
-                releaseNotes += `<ul><li>${I18n.t('wmesu.common.NothingMajor')}</ul>`;
+                ulElem.appendChild(createElem('li', { textContent: 'Nothing major.' }));
             }
-            WazeWrap.Interface.ShowScriptUpdate(_SCRIPT_SHORT_NAME, _SCRIPT_VERSION, releaseNotes, (_IS_BETA_VERSION ? dec(_BETA_URL) : _PROD_URL).replace(/code\/.*\.js/, ''), _FORUM_URL);
+            divElemRoot.appendChild(ulElem);
+            WazeWrap.Interface.ShowScriptUpdate(_SCRIPT_SHORT_NAME, _SCRIPT_VERSION, divElemRoot.innerHTML, (_IS_BETA_VERSION ? dec(_BETA_DL_URL) : _PROD_DL_URL).replace(/code\/.*\.js/, ''), _FORUM_URL);
         }
-    }
-
-    function checkTimeout(obj) {
-        if (obj.toIndex) {
-            if (_timeouts[obj.timeout]?.[obj.toIndex]) {
-                window.clearTimeout(_timeouts[obj.timeout][obj.toIndex]);
-                delete (_timeouts[obj.timeout][obj.toIndex]);
-            }
-        }
-        else {
-            if (_timeouts[obj.timeout])
-                window.clearTimeout(_timeouts[obj.timeout]);
-            _timeouts[obj.timeout] = undefined;
-        }
-    }
-
-    function log(message, data = '') { console.log(`${_SCRIPT_SHORT_NAME}:`, message, data); }
-    function logError(message, data = '') { console.error(`${_SCRIPT_SHORT_NAME}:`, new Error(message), data); }
-    function logWarning(message, data = '') { console.warn(`${_SCRIPT_SHORT_NAME}:`, message, data); }
-    function logDebug(message, data = '') {
-        if (_DEBUG)
-            log(message, data);
-    }
-
-    function dec(s = '') {
-        return atob(atob(s));
     }
 
     // рассчитаем пересчечение перпендикуляра точки с наклонной прямой
@@ -172,19 +224,19 @@
     }
 
     function checkNameContinuity(segmentSelectionArr = []) {
-        const streetIds = [];
-        for (let idx = 0; idx < segmentSelectionArr.length; idx++) {
+        const streetIds = [],
+            streetIdsForEach = (streetId) => { streetIds.push(streetId); };
+        for (let idx = 0, { length } = segmentSelectionArr; idx < length; idx++) {
             if (idx > 0) {
-                if ((segmentSelectionArr[idx].attributes.primaryStreetID > 0) && (streetIds.indexOf(segmentSelectionArr[idx].attributes.primaryStreetID) > -1))
+                if ((segmentSelectionArr[idx].attributes.primaryStreetID > 0) && streetIds.includes(segmentSelectionArr[idx].attributes.primaryStreetID))
                 // eslint-disable-next-line no-continue
                     continue;
                 if (segmentSelectionArr[idx].attributes.streetIDs.length > 0) {
                     let included = false;
-                    for (let idx2 = 0; idx2 < segmentSelectionArr[idx].attributes.streetIDs.length; idx2++) {
-                        if (streetIds.indexOf(segmentSelectionArr[idx].attributes.streetIDs[idx2]) > -1) {
-                            included = true;
+                    for (let idx2 = 0, len = segmentSelectionArr[idx].attributes.streetIDs.length; idx2 < len; idx2++) {
+                        included = streetIds.includes(segmentSelectionArr[idx].attributes.streetIDs[idx2]);
+                        if (included)
                             break;
-                        }
                     }
                     if (included === true)
                     // eslint-disable-next-line no-continue
@@ -198,7 +250,7 @@
                 if (segmentSelectionArr[idx].attributes.primaryStreetID > 0)
                     streetIds.push(segmentSelectionArr[idx].attributes.primaryStreetID);
                 if (segmentSelectionArr[idx].attributes.streetIDs.length > 0)
-                    segmentSelectionArr[idx].attributes.streetIDs.forEach((streetId) => { streetIds.push(streetId); });
+                    segmentSelectionArr[idx].attributes.streetIDs.forEach(streetIdsForEach);
             }
         }
         return true;
@@ -222,24 +274,24 @@
             nodesObjArr = W.model.nodes.getByIds(distinctNodes);
         if (!nodesObjArr || (nodesObjArr.length < 1))
             return false;
-        const checkGeoComp = (geoComp, node4326) => {
+        const checkGeoComp = function (geoComp) {
             const testNode4326 = WazeWrap.Geometry.ConvertTo4326(geoComp.x, geoComp.y);
-            if ((node4326.lon !== testNode4326.lon) || (node4326.lat !== testNode4326.lat)) {
-                if (distanceBetweenPoints(node4326.lon, node4326.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
+            if ((this.lon !== testNode4326.lon) || (this.lat !== testNode4326.lat)) {
+                if (distanceBetweenPoints(this.lon, this.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
                     return false;
             }
             return true;
         };
-        for (let idx = 0; idx < nodesObjArr.length; idx++) {
-            if (nodesChecked.indexOf(nodesObjArr[idx]) === -1) {
+        for (let idx = 0, { length } = nodesObjArr; idx < length; idx++) {
+            if (!nodesChecked.includes(nodesObjArr[idx])) {
                 nodesChecked.push(nodesObjArr[idx]);
                 const segmentsObjArr = W.model.segments.getByIds(nodesObjArr[idx].getSegmentIds()) || [],
                     node4326 = WazeWrap.Geometry.ConvertTo4326(nodesObjArr[idx].geometry.x, nodesObjArr[idx].geometry.y);
-                for (let idx2 = 0; idx2 < segmentsObjArr.length; idx2++) {
+                for (let idx2 = 0, len = segmentsObjArr.length; idx2 < len; idx2++) {
                     const segObj = segmentsObjArr[idx2];
                     if (!singleSegmentId
                     || (singleSegmentId && (segObj.attributes.id === singleSegmentId))) {
-                        if (!segObj.geometry.components.every((geoComp) => checkGeoComp(geoComp, node4326)))
+                        if (!segObj.geometry.components.every(checkGeoComp.bind(node4326)))
                             return true;
                     }
                 }
@@ -251,10 +303,9 @@
     function doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, microDogLegsContinue, longJnMoveContinue, passedObj) {
         const segmentSelection = W.selectionManager.getSegmentSelection();
         if (longJnMoveContinue && passedObj) {
-            const { segmentsToRemoveGeometryArr } = passedObj,
-                { nodesToMoveArr } = passedObj,
-                { distinctNodes } = passedObj,
-                { endPointNodeIds } = passedObj;
+            const {
+                segmentsToRemoveGeometryArr, nodesToMoveArr, distinctNodes, endPointNodeIds
+            } = passedObj;
             logDebug(`${I18n.t('wmesu.log.StraighteningSegments')}: ${distinctNodes.join(', ')} (${distinctNodes.length})`);
             logDebug(`${I18n.t('wmesu.log.EndPoints')}: ${endPointNodeIds.join(' & ')}`);
             if (segmentsToRemoveGeometryArr?.length > 0) {
@@ -348,7 +399,7 @@
                 dupNodeIds = [];
             let endPointNodeIds,
                 longMove = false;
-            for (let idx = 0; idx < segmentSelection.segments.length; idx++) {
+            for (let idx = 0, { length } = segmentSelection.segments; idx < length; idx++) {
                 allNodeIds.push(segmentSelection.segments[idx].attributes.fromNodeID);
                 allNodeIds.push(segmentSelection.segments[idx].attributes.toNodeID);
                 if (segmentSelection.segments[idx].type === 'segment') {
@@ -364,7 +415,7 @@
             }
             allNodeIds.forEach((nodeId, idx) => {
                 if (allNodeIds.indexOf(nodeId, idx + 1) > -1) {
-                    if (dupNodeIds.indexOf(nodeId) === -1)
+                    if (!dupNodeIds.includes(nodeId))
                         dupNodeIds.push(nodeId);
                 }
             });
@@ -411,7 +462,7 @@
                 b = endPointNode1Geo.x - endPointNode2Geo.x,
                 c = endPointNode2Geo.x * endPointNode1Geo.y - endPointNode1Geo.x * endPointNode2Geo.y;
             distinctNodes.forEach((nodeId) => {
-                if (endPointNodeIds.indexOf(nodeId) === -1) {
+                if (!endPointNodeIds.includes(nodeId)) {
                     const node = W.model.nodes.getObjectById(nodeId),
                         nodeGeo = node.geometry.clone();
                     const d = nodeGeo.y * a - nodeGeo.x * b,
@@ -420,7 +471,7 @@
                     nodeGeo.y = r1.y;
                     nodeGeo.calculateBounds();
                     const connectedSegObjs = {};
-                    for (let idx = 0; idx < node.attributes.segIDs.length; idx++) {
+                    for (let idx = 0, { length } = node.attributes.segIDs; idx < length; idx++) {
                         const segId = node.attributes.segIDs[idx];
                         connectedSegObjs[segId] = W.model.segments.getObjectById(segId).geometry.clone();
                     }
@@ -498,24 +549,16 @@
     }
 
     function insertSimplifyStreetGeometryButtons(recreate = false) {
-        const $elem = $('#segment-edit-general .form-group.more-actions');
-        if (($('#WME-SU').length > 0) && recreate)
-            $('#WME-SU').remove();
-        if ($('#WME-SU').length === 0) {
-            if ($elem.length === 0)
+        const elem = document.querySelector('#segment-edit-general .form-group.more-actions'),
+            wmeSuDiv = document.getElementById('WME-SU');
+        if (wmeSuDiv && recreate)
+            wmeSuDiv.remove();
+        if (!wmeSuDiv) {
+            if (!elem)
                 return;
-            if ($elem.find('wz-button').length > 0) {
-                $elem.append($(
-                    '<wz-button>',
-                    { id: 'WME-SU', color: 'secondary', size: 'sm' }
-                ).text(I18n.t('wmesu.StraightenUp')).attr('title', I18n.t('wmesu.StraightenUpTitle')).click(doStraightenSegments));
-            }
-            else {
-                $elem.append($(
-                    '<button>',
-                    { id: 'WME-SU', class: 'waze-btn waze-btn-small waze-btn-white' }
-                ).text(I18n.t('wmesu.StraightenUp')).attr('title', I18n.t('wmesu.StraightenUpTitle')).click(doStraightenSegments));
-            }
+            elem.appendChild(createElem('wz-button', {
+                id: 'WME-SU', color: 'secondary', size: 'sm', textContent: I18n.t('wmesu.StraightenUp'), title: I18n.t('wmesu.StraightenUpTitle')
+            }, [{ click: doStraightenSegments }]));
         }
     }
 
@@ -583,8 +626,8 @@
                             LongJnMoveTitle: 'Select what to do if one or more of the junction nodes would move further than 10m.',
                             MicroDogLegs: 'Possible micro doglegs (mDL)',
                             MicroDogLegsTitle: 'Select what to do if one or more of the junction nodes in the selection have a geometry node within 2m of itself, which is a possible micro dogleg (mDL).',
-                            NonContinuous: 'Non-continuous selected segments',
-                            NonContinuousTitle: 'Select what to do if the selected segments are not continuous.',
+                            NonContinuousSelection: 'Non-continuous selected segments',
+                            NonContinuousSelectionTitle: 'Select what to do if the selected segments are not continuous.',
                             SanityCheck: 'Sanity check',
                             SanityCheckTitle: 'Select what to do if you selected a many segments.'
                         }
@@ -663,56 +706,20 @@
                 locale = I18n.currentLocale();
             I18n.translations[locale].wmesu = translations.en;
             translations['en-US'] = { ...translations.en };
-            I18n.translations[locale].wmesu = $.extend({}, translations.en, translations[locale]);
+            I18n.translations[locale].wmesu = $extend(true, {}, translations.en, translations[locale]);
             resolve();
-        });
-    }
-
-    function buildSelections(selected) {
-        const rVal = `<option value="nowarning"${(selected === 'nowarning' ? ' selected' : '')}>${I18n.t('wmesu.settings.NoWarning')}</option>`
-            + `<option value="warning"${(selected === 'warning' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveWarning')}</option>`
-            + `<option value="error"${(selected === 'error' ? ' selected' : '')}>${I18n.t('wmesu.settings.GiveError')}</option>`;
-        return rVal;
-    }
-
-    function onWazeTabReady() {
-        $('span:contains("SU")').filter(function () { return $(this).parent('a').length > 0; }).parents('li').attr('title', 'Straighten Up!');
-        $('select[id^="WMESU-"]').off().on('change', function () {
-            const setting = this.id.substr(6);
-            if (this.value.toLowerCase() !== _settings[setting]) {
-                _settings[setting] = this.value.toLowerCase();
-                saveSettingsToStorage();
-            }
         });
     }
 
     function checkSuVersion() {
         if (_IS_ALPHA_VERSION)
             return;
+        let updateMonitor;
         try {
-            const metaUrl = _IS_BETA_VERSION ? dec(_BETA_META_URL) : _PROD_META_URL;
-            GM_xmlhttpRequest({
-                url: metaUrl,
-                onload(res) {
-                    const latestVersion = res.responseText.match(/@version\s+(.*)/)[1];
-                    if ((latestVersion > _SCRIPT_VERSION) && (latestVersion > (_lastVersionChecked || '0'))) {
-                        _lastVersionChecked = latestVersion;
-                        WazeWrap.Alerts.info(
-                            _SCRIPT_LONG_NAME,
-                            `<a href="${(_IS_BETA_VERSION ? dec(_BETA_URL) : _PROD_URL)}" target = "_blank">Version ${latestVersion}</a> is available.<br>Update now to get the latest features and fixes.`,
-                            true,
-                            false
-                        );
-                    }
-                },
-                onerror(res) {
-                    // Silently fail with an error message in the console.
-                    logError('Upgrade version check:', res);
-                }
-            });
+            updateMonitor = new WazeWrap.Alerts.ScriptUpdateMonitor(_SCRIPT_LONG_NAME, _SCRIPT_VERSION, (_IS_BETA_VERSION ? dec(_BETA_DL_URL) : _PROD_DL_URL), GM_xmlhttpRequest);
+            updateMonitor.start();
         }
         catch (err) {
-            // Silently fail with an error message in the console.
             logError('Upgrade version check:', err);
         }
     }
@@ -720,41 +727,81 @@
     async function onWazeWrapReady() {
         log('Initializing.');
         checkSuVersion();
-        setInterval(checkSuVersion, 60 * 60 * 1000);
         if (W.loginManager.getUserRank() < 2)
             return;
         await loadSettingsFromStorage();
         await loadTranslations();
-        const $suTab = $('<div>', { style: 'padding:8px 16px', id: 'WMESUSettings' });
-        $suTab.html([
-            `<div style="margin-bottom:0px;font-size:13px;font-weight:600;">${_SCRIPT_SHORT_NAME}</div>`,
-            `<div style="margin-top:0px;font-size:11px;font-weight:600;color:#aaa">${_SCRIPT_VERSION}</div>`,
-            `<div id="WMESU-div-conflictingNames" class="controls-container"><select id="WMESU-conflictingNames" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.ConflictingNamesTitle')}">`,
-            buildSelections(_settings.conflictingNames),
-            `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.ConflictingNames')}</div>`,
-            '</div><br/>',
-            `<div id="WMESU-div-longJnMove" class="controls-container"><select id="WMESU-longJnMove" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.LongJnMoveTitle')}">`,
-            buildSelections(_settings.longJnMove),
-            `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.LongJnMove')}</div>`,
-            '</div><br/>',
-            `<div id="WMESU-div-microDogLegs" class="controls-container"><select id="WMESU-microDogLegs" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.MicroDogLegsTitle')}">`,
-            buildSelections(_settings.microDogLegs),
-            `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.MicroDogLegs')}</div>`,
-            '</div><br/>',
-            `<div id="WMESU-div-nonContinuousSelection" class="controls-container"><select id="WMESU-nonContinuousSelection" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.NonContinuousTitle')}">`,
-            buildSelections(_settings.nonContinuousSelection),
-            `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.NonContinuous')}</div>`,
-            '</div><br/>',
-            `<div id="WMESU-div-sanityCheck" class="controls-container"><select id="WMESU-sanityCheck" style="font-size:11px;height:22px;" title="${I18n.t('wmesu.settings.SanityCheckTitle')}">`,
-            buildSelections(_settings.sanityCheck),
-            `</select><div style="display:inline-block;font-size:11px;">${I18n.t('wmesu.settings.SanityCheck')}</div>`,
-            `<div style="margin-top:20px;"><div style="font-size:14px;font-weight:600;">${I18n.t('wmesu.common.Help')}:</div><div><ol style="font-weight:600;">`,
-            `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step01')}</p></li>`,
-            `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step02')}<br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Step02note')}</p></li>`,
-            `<li><p style="font-weight:100;margin-bottom:0px;">${I18n.t('wmesu.help.Step03')}</p></li></ol></div>`,
-            `<b>${I18n.t('wmesu.common.Warning')}:</b> ${I18n.t('wmesu.help.Warning01')}<br><br><b>${I18n.t('wmesu.common.Note')}:</b> ${I18n.t('wmesu.help.Note01')}</div></div>`
-        ].join(' '));
-        WazeWrap.Interface.Tab('SU!', $suTab.html(), onWazeTabReady, 'SU!');
+        const onSelectionChange = function () {
+                const setting = this.id.substr(6);
+                if (this.value.toLowerCase() !== _settings[setting]) {
+                    _settings[setting] = this.value.toLowerCase();
+                    saveSettingsToStorage();
+                }
+            },
+            buildSelections = (selected) => {
+                const docFrags = document.createDocumentFragment();
+                docFrags.appendChild(createElem('option', { value: 'nowarning', selected: selected === 'nowarning', textContent: I18n.t('wmesu.settings.NoWarning') }));
+                docFrags.appendChild(createElem('option', { value: 'warning', selected: selected === 'warning', textContent: I18n.t('wmesu.settings.GiveWarning') }));
+                docFrags.appendChild(createElem('option', { value: 'error', selected: selected === 'error', textContent: I18n.t('wmesu.settings.GiveError') }));
+                return docFrags;
+            },
+            buildSection = (section) => {
+                const selectElem = createElem('select', {
+                    id: `WMESU-${section}`,
+                    style: 'font-size:11px;height:22px;',
+                    title: I18n.t(`wmesu.settings.${section.charAt(0).toUpperCase()}${section.slice(1)}Title`)
+                }, [{ change: onSelectionChange }]);
+                selectElem.appendChild(buildSelections(_settings[section]));
+                const divElemDiv = createElem('div', { id: `WMESU-div-${section}`, class: 'controls-container' });
+                divElemDiv.appendChild(selectElem);
+                const divElemDivDiv = createElem('div', { style: 'display:inline-block;font-size:11px;', textContent: I18n.t(`wmesu.settings.${section.charAt(0).toUpperCase()}${section.slice(1)}`) });
+                divElemDiv.appendChild(divElemDivDiv);
+                return divElemDiv;
+            },
+            tabContent = () => {
+                const docFrags = document.createDocumentFragment();
+                docFrags.appendChild(createElem('div', { style: 'margin-bottom:0px;font-size:13px;font-weight:600;', textContent: _SCRIPT_SHORT_NAME }));
+                docFrags.appendChild(createElem('div', { style: 'margin-top:0px;font-size:11px;font-weight:600;color:#aaa;', textContent: _SCRIPT_VERSION }));
+                docFrags.appendChild(buildSection('conflictingNames'));
+                docFrags.appendChild(buildSection('longJnMove'));
+                docFrags.appendChild(buildSection('microDogLegs'));
+                docFrags.appendChild(buildSection('nonContinuousSelection'));
+                docFrags.appendChild(buildSection('sanityCheck'));
+                const divElemDiv = createElem('div', { style: 'margin-top:20px;' });
+                divElemDiv.appendChild(createElem('div', { style: 'font-size:14px;font-weight:600;', textContent: I18n.t('wmesu.common.Help') }));
+                let liElem = createElem('li');
+                liElem.appendChild(createElem('p', { style: 'font-weight:100;margin-bottom:0px;', textContent: I18n.t('wmesu.help.Step01') }));
+                const olElem = createElem('ol', { style: 'font-weight:600;' });
+                olElem.appendChild(liElem);
+                const pElem = createElem('p', { style: 'font-weight:100;margin-bottom:0px;' });
+                pElem.appendChild(createTextNode(I18n.t('wmesu.help.Step02')));
+                pElem.appendChild(createElem('br'));
+                pElem.appendChild(createElem('b', { textContent: `${I18n.t('wmesu.common.Note')}:` }));
+                pElem.appendChild(createTextNode(` ${I18n.t('wmesu.help.Step02note')}`));
+                liElem = createElem('li');
+                liElem.appendChild(pElem);
+                olElem.appendChild(liElem);
+                liElem = createElem('li');
+                liElem.appendChild(createElem('p', { style: 'font-weight:100;margin-bottom:0px;', textContent: I18n.t('wmesu.help.Step03') }));
+                olElem.appendChild(liElem);
+                const divElemDivDiv = createElem('div');
+                divElemDivDiv.appendChild(olElem);
+                divElemDiv.appendChild(divElemDivDiv);
+                divElemDiv.appendChild(createElem('b', { textContent: `${I18n.t('wmesu.common.Warning')}:` }));
+                divElemDiv.appendChild(createTextNode(` ${I18n.t('wmesu.help.Warning01')}`));
+                divElemDiv.appendChild(createElem('br'));
+                divElemDiv.appendChild(createElem('br'));
+                divElemDiv.appendChild(createElem('b', { textContent: `${I18n.t('wmesu.common.Note')}:` }));
+                divElemDiv.appendChild(createTextNode(` ${I18n.t('wmesu.help.Note01')}`));
+                docFrags.appendChild(divElemDiv);
+                return docFrags;
+            };
+        const { tabLabel, tabPane } = W.userscripts.registerSidebarTab('SU!');
+        tabLabel.textContent = 'SU!';
+        tabLabel.title = _SCRIPT_LONG_NAME;
+        tabPane.appendChild(tabContent());
+        tabPane.id = 'WMESUSettings';
+        await W.userscripts.waitForElementConnected(tabPane);
         logDebug('Enabling MOs.');
         _editPanelObserver.observe(document.querySelector('#edit-panel'), {
             childList: true, attributes: false, attributeOldValue: false, characterData: false, characterDataOldValue: false, subtree: true
@@ -769,10 +816,7 @@
             'editing',
             'Straighten Up',
             _settings.runStraightenUpShortcut,
-            () => {
-                if ($('#WME-SU').length > 0)
-                    $('#WME-SU').click();
-            },
+            () => document.getElementById('WME-SU')?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
             null
         ).add();
         showScriptInfoAlert();
