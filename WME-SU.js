@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version     2023.05.08.01
+// @version     2023.05.10.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author      dBsooner
 // @match       http*://*.waze.com/*editor*
@@ -32,6 +32,7 @@
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
         _SCRIPT_VERSION_CHANGES = ['CHANGE: Reverted to 100% vanilla JavaScript, removing reliance on jQuery.',
+            'CHANGE: Moved button and removed extra code no longer needed.',
             'CHANGE: Switch to WazeWrap for script update checking.'
         ],
         _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
@@ -45,19 +46,10 @@
             option: document.createElement('option'),
             p: document.createElement('p'),
             select: document.createElement('select'),
-            'wz-button': document.createElement('wz-button')
+            'wz-button': document.createElement('wz-button'),
+            'wz-card': document.createElement('wz-card')
         },
-        _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined },
-        _editPanelObserver = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                for (let i = 0, { length } = mutation.addedNodes; i < length; i++) {
-                    if (mutation.addedNodes[i].nodeType === Node.ELEMENT_NODE) {
-                        if (mutation.addedNodes[i].querySelector('#segment-edit-general .form-group.more-actions'))
-                            insertSimplifyStreetGeometryButtons();
-                    }
-                }
-            });
-        });
+        _timeouts = { onWmeReady: undefined, saveSettingsToStorage: undefined };
     let _settings = {};
 
     function log(message, data = '') { console.log(`${_SCRIPT_SHORT_NAME}:`, message, data); }
@@ -94,10 +86,12 @@
                 return this.addEventListener(evt, cb);
             };
         Object.keys(attrs).forEach((attr) => {
-            if ((attr === 'disabled') || (attr === 'checked') || (attr === 'selected') || (attr === 'textContent') || (attr === 'innerHTML'))
-                el[attr] = attrs[attr];
-            else
-                el.setAttribute(attr, attrs[attr]);
+            if ((attrs[attr] !== undefined) && (attrs[attr] !== 'undefined') && (attrs[attr] !== null) && (attrs[attr] !== 'null')) {
+                if ((attr === 'disabled') || (attr === 'checked') || (attr === 'selected') || (attr === 'textContent') || (attr === 'innerHTML'))
+                    el[attr] = attrs[attr];
+                else
+                    el.setAttribute(attr, attrs[attr]);
+            }
         });
         if (eventListener.length > 0) {
             eventListener.forEach((obj) => {
@@ -330,7 +324,6 @@
                 if (!straightened) {
                     logDebug(I18n.t('wmesu.log.AllNodesStraight'));
                     WazeWrap.Alerts.info(_SCRIPT_SHORT_NAME, I18n.t('wmesu.log.AllNodesStraight'));
-                    return;
                 }
             }
         }
@@ -340,7 +333,6 @@
             if ((segmentSelection.segments.length > 10) && !sanityContinue) {
                 if (_settings.sanityCheck === 'error') {
                     WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.TooManySegments'));
-                    insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (_settings.sanityCheck === 'warning') {
@@ -348,7 +340,7 @@
                         _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.SanityCheckConfirm'),
                         () => { doStraightenSegments(true, false, false, false, false, undefined); },
-                        () => { insertSimplifyStreetGeometryButtons(true); },
+                        () => { },
                         I18n.t('wmesu.common.Yes'),
                         I18n.t('wmesu.common.No')
                     );
@@ -359,7 +351,6 @@
             if ((segmentSelection.multipleConnectedComponents === true) && !nonContinuousContinue) {
                 if (_settings.nonContinuousSelection === 'error') {
                     WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.NonContinuous'));
-                    insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (_settings.nonContinuousSelection === 'warning') {
@@ -367,7 +358,7 @@
                         _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.NonContinuousConfirm'),
                         () => { doStraightenSegments(sanityContinue, true, false, false, false, undefined); },
-                        () => { insertSimplifyStreetGeometryButtons(true); },
+                        () => { },
                         I18n.t('wmesu.common.Yes'),
                         I18n.t('wmesu.common.No')
                     );
@@ -379,7 +370,6 @@
                 const continuousNames = checkNameContinuity(segmentSelection.segments);
                 if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'error')) {
                     WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.ConflictingNames'));
-                    insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (!continuousNames && !conflictingNamesContinue && (_settings.conflictingNames === 'warning')) {
@@ -387,7 +377,7 @@
                         _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.ConflictingNamesConfirm'),
                         () => { doStraightenSegments(sanityContinue, nonContinuousContinue, true, false, false, undefined); },
-                        () => { insertSimplifyStreetGeometryButtons(true); },
+                        () => { },
                         I18n.t('wmesu.common.Yes'),
                         I18n.t('wmesu.common.No')
                     );
@@ -423,7 +413,6 @@
             if (!microDogLegsContinue && (checkForMicroDogLegs(distinctNodes, undefined) === true)) {
                 if (_settings.microDogLegs === 'error') {
                     WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
-                    insertSimplifyStreetGeometryButtons(true);
                     return;
                 }
                 if (_settings.microDogLegs === 'warning') {
@@ -431,7 +420,7 @@
                         _SCRIPT_SHORT_NAME,
                         I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
                         () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
-                        () => { insertSimplifyStreetGeometryButtons(true); },
+                        () => { },
                         I18n.t('wmesu.common.Yes'),
                         I18n.t('wmesu.common.No')
                     );
@@ -486,7 +475,6 @@
             });
             if (longMove && (_settings.longJnMove === 'error')) {
                 WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.LongJnMove'));
-                insertSimplifyStreetGeometryButtons(true);
                 return;
             }
             if (longMove && (_settings.longJnMove === 'warning')) {
@@ -498,7 +486,7 @@
                             segmentsToRemoveGeometryArr, nodesToMoveArr, distinctNodes, endPointNodeIds
                         });
                     },
-                    () => { insertSimplifyStreetGeometryButtons(true); },
+                    () => { },
                     I18n.t('wmesu.common.Yes'),
                     I18n.t('wmesu.common.No')
                 );
@@ -514,7 +502,6 @@
                 if (!microDogLegsContinue && (checkForMicroDogLegs([seg.attributes.fromNodeID, seg.attributes.toNodeID], seg.attributes.id) === true)) {
                     if (_settings.microDogLegs === 'error') {
                         WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
-                        insertSimplifyStreetGeometryButtons(true);
                         return;
                     }
                     if (_settings.microDogLegs === 'warning') {
@@ -522,7 +509,7 @@
                             _SCRIPT_SHORT_NAME,
                             I18n.t('wmesu.prompts.MicroDogLegsConfirm'),
                             () => { doStraightenSegments(sanityContinue, nonContinuousContinue, conflictingNamesContinue, true, false, undefined); },
-                            () => { insertSimplifyStreetGeometryButtons(true); },
+                            () => { },
                             I18n.t('wmesu.common.Yes'),
                             I18n.t('wmesu.common.No')
                         );
@@ -545,30 +532,37 @@
         else {
             logWarning(I18n.t('wmesu.log.NoSegmentsSelected'));
         }
-        insertSimplifyStreetGeometryButtons(true);
     }
 
-    function insertSimplifyStreetGeometryButtons(recreate = false) {
-        const elem = document.querySelector('#segment-edit-general .form-group.more-actions'),
-            wmeSuDiv = document.getElementById('WME-SU');
-        if (wmeSuDiv && recreate)
-            wmeSuDiv.remove();
+    function insertSimplifyStreetGeometryButtons() {
+        const wmeSuDiv = document.getElementById('WME-SU-div'),
+            elem = document.getElementById('segment-edit-general');
+        if (!elem)
+            return;
+        const docFrags = document.createDocumentFragment();
         if (!wmeSuDiv) {
-            if (!elem)
-                return;
-            elem.appendChild(createElem('wz-button', {
-                id: 'WME-SU', color: 'secondary', size: 'sm', textContent: I18n.t('wmesu.StraightenUp'), title: I18n.t('wmesu.StraightenUpTitle')
+            const contentDiv = createElem('div', { style: 'align-items:center; cursor:pointer; display:flex; font-size:13px; gap:8px; justify-content:flex-start;', textContent: I18n.t('wmesu.StraightenUp') });
+            contentDiv.appendChild(createElem('wz-button', {
+                id: 'WME-SU', color: 'secondary', size: 'xs', textContent: I18n.t('wmesu.common.DoIt'), title: I18n.t('wmesu.StraightenUpTitle')
             }, [{ click: doStraightenSegments }]));
+            const wzCard = createElem('wz-card', { style: '--wz-card-padding:4px 8px; --wz-card-margin:0; --wz-card-width:auto; display:block; margin-bottom:8px;' });
+            wzCard.appendChild(contentDiv);
+            const divElemRoot = createElem('div', { id: 'WME-SU-div' });
+            divElemRoot.appendChild(wzCard);
+            docFrags.appendChild(divElemRoot);
         }
+        if (docFrags.firstChild)
+            elem.insertBefore(docFrags, elem.firstChild);
     }
 
     function loadTranslations() {
         return new Promise((resolve) => {
             const translations = {
                     en: {
-                        StraightenUp: 'Straighten up!',
+                        StraightenUp: 'Straighten Up!',
                         StraightenUpTitle: 'Click here to straighten the selected segment(s) by removing geometry nodes and moving junction nodes as needed.',
                         common: {
+                            DoIt: 'Do It',
                             From: 'from',
                             Help: 'Help',
                             No: 'No',
@@ -636,6 +630,7 @@
                         StraightenUp: 'Выпрямить сегменты!',
                         StraightenUpTitle: 'Нажмите, чтобы выпрямить выбранные сегменты, удалив лишние геометрические точки и переместив узлы перекрёстков в ровную линию.',
                         common: {
+                            DoIt: 'Сделай это',
                             From: 'с',
                             Help: 'Помощь',
                             No: 'Нет',
@@ -803,9 +798,6 @@
         tabPane.id = 'WMESUSettings';
         await W.userscripts.waitForElementConnected(tabPane);
         logDebug('Enabling MOs.');
-        _editPanelObserver.observe(document.querySelector('#edit-panel'), {
-            childList: true, attributes: false, attributeOldValue: false, characterData: false, characterDataOldValue: false, subtree: true
-        });
         W.selectionManager.events.register('selectionchanged', null, insertSimplifyStreetGeometryButtons);
         if (W.selectionManager.getSegmentSelection().segments.length > 0)
             insertSimplifyStreetGeometryButtons();
