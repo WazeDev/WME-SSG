@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version     2023.05.10.01
+// @version     2023.08.02.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author      dBsooner
 // @match       http*://*.waze.com/*editor*
@@ -31,10 +31,7 @@
         _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzUxYzJWeUxtcHo=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['CHANGE: Reverted to 100% vanilla JavaScript, removing reliance on jQuery.',
-            'CHANGE: Moved button and removed extra code no longer needed.',
-            'CHANGE: Switch to WazeWrap for script update checking.'
-        ],
+        _SCRIPT_VERSION_CHANGES = ['CHANGE: WME release v2.180-7-geb388e8d3 compatibility.'],
         _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
         _LOAD_BEGIN_TIME = performance.now(),
         _elems = {
@@ -222,13 +219,13 @@
             streetIdsForEach = (streetId) => { streetIds.push(streetId); };
         for (let idx = 0, { length } = segmentSelectionArr; idx < length; idx++) {
             if (idx > 0) {
-                if ((segmentSelectionArr[idx].attributes.primaryStreetID > 0) && streetIds.includes(segmentSelectionArr[idx].attributes.primaryStreetID))
+                if ((segmentSelectionArr[idx].getPrimaryStreetID() > 0) && streetIds.includes(segmentSelectionArr[idx].getPrimaryStreetID()))
                 // eslint-disable-next-line no-continue
                     continue;
-                if (segmentSelectionArr[idx].attributes.streetIDs.length > 0) {
+                if (segmentSelectionArr[idx].getAttribute('streetIDs').length > 0) {
                     let included = false;
-                    for (let idx2 = 0, len = segmentSelectionArr[idx].attributes.streetIDs.length; idx2 < len; idx2++) {
-                        included = streetIds.includes(segmentSelectionArr[idx].attributes.streetIDs[idx2]);
+                    for (let idx2 = 0, len = segmentSelectionArr[idx].getAttribute('streetIDs').length; idx2 < len; idx2++) {
+                        included = streetIds.includes(segmentSelectionArr[idx].getAttribute('streetIDs')[idx2]);
                         if (included)
                             break;
                     }
@@ -241,10 +238,10 @@
                 return false;
             }
             if (idx === 0) {
-                if (segmentSelectionArr[idx].attributes.primaryStreetID > 0)
-                    streetIds.push(segmentSelectionArr[idx].attributes.primaryStreetID);
-                if (segmentSelectionArr[idx].attributes.streetIDs.length > 0)
-                    segmentSelectionArr[idx].attributes.streetIDs.forEach(streetIdsForEach);
+                if (segmentSelectionArr[idx].getPrimaryStreetID() > 0)
+                    streetIds.push(segmentSelectionArr[idx].getPrimaryStreetID());
+                if (segmentSelectionArr[idx].getAttribute('streetIDs').length > 0)
+                    segmentSelectionArr[idx].getAttribute('streetIDs').forEach(streetIdsForEach);
             }
         }
         return true;
@@ -284,7 +281,7 @@
                 for (let idx2 = 0, len = segmentsObjArr.length; idx2 < len; idx2++) {
                     const segObj = segmentsObjArr[idx2];
                     if (!singleSegmentId
-                    || (singleSegmentId && (segObj.attributes.id === singleSegmentId))) {
+                    || (singleSegmentId && (segObj.getID() === singleSegmentId))) {
                         if (!segObj.geometry.components.every(checkGeoComp.bind(node4326)))
                             return true;
                     }
@@ -306,7 +303,7 @@
                 const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
                 segmentsToRemoveGeometryArr.forEach((obj) => {
                     W.model.actionManager.add(new UpdateSegmentGeometry(obj.segment, obj.geometry, obj.newGeo));
-                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${obj.segment.attributes.id}`);
+                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${obj.segment.getID()}`);
                 });
             }
             if (nodesToMoveArr?.length > 0) {
@@ -314,7 +311,7 @@
                 let straightened = false;
                 nodesToMoveArr.forEach((node) => {
                     if ((Math.abs(node.geometry.x - node.nodeGeo.x) > 0.00000001) || (Math.abs(node.geometry.y - node.nodeGeo.y) > 0.00000001)) {
-                        logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${node.node.attributes.id} `
+                        logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${node.node.getID()} `
                         + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
                         + `${I18n.t('wmesu.common.To')}: ${node.nodeGeo.x},${node.nodeGeo.y}`);
                         W.model.actionManager.add(new MoveNode(node.node, node.geometry, node.nodeGeo, node.connectedSegObjs, {}));
@@ -390,8 +387,8 @@
             let endPointNodeIds,
                 longMove = false;
             for (let idx = 0, { length } = segmentSelection.segments; idx < length; idx++) {
-                allNodeIds.push(segmentSelection.segments[idx].attributes.fromNodeID);
-                allNodeIds.push(segmentSelection.segments[idx].attributes.toNodeID);
+                allNodeIds.push(segmentSelection.segments[idx].getFromNode().getID());
+                allNodeIds.push(segmentSelection.segments[idx].getToNode().getID());
                 if (segmentSelection.segments[idx].type === 'segment') {
                     const newGeo = segmentSelection.segments[idx].geometry.clone();
                     // Remove the geometry nodes
@@ -431,7 +428,7 @@
             if (segmentSelection.multipleConnectedComponents === false)
                 endPointNodeIds = distinctNodes.filter((nodeId) => !dupNodeIds.includes(nodeId));
             else
-                endPointNodeIds = [segmentSelection.segments[0].attributes.fromNodeID, segmentSelection.segments[(segmentSelection.segments.length - 1)].attributes.toNodeID];
+                endPointNodeIds = [segmentSelection.segments[0].getFromNode().getID(), segmentSelection.segments[(segmentSelection.segments.length - 1)].getToNode().getID()];
             const endPointNodeObjs = W.model.nodes.getByIds(endPointNodeIds),
                 endPointNode1Geo = endPointNodeObjs[0].geometry.clone(),
                 endPointNode2Geo = endPointNodeObjs[1].geometry.clone();
@@ -460,8 +457,8 @@
                     nodeGeo.y = r1.y;
                     nodeGeo.calculateBounds();
                     const connectedSegObjs = {};
-                    for (let idx = 0, { length } = node.attributes.segIDs; idx < length; idx++) {
-                        const segId = node.attributes.segIDs[idx];
+                    for (let idx = 0, { length } = node.getAttribute('segIDs'); idx < length; idx++) {
+                        const segId = node.getAttribute('segIDs')[idx];
                         connectedSegObjs[segId] = W.model.segments.getObjectById(segId).geometry.clone();
                     }
                     const fromNodeLonLat = WazeWrap.Geometry.ConvertTo4326(node.geometry.x, node.geometry.y),
@@ -499,7 +496,7 @@
         else if (segmentSelection.segments.length === 1) {
             const seg = segmentSelection.segments[0];
             if (seg.type === 'segment') {
-                if (!microDogLegsContinue && (checkForMicroDogLegs([seg.attributes.fromNodeID, seg.attributes.toNodeID], seg.attributes.id) === true)) {
+                if (!microDogLegsContinue && (checkForMicroDogLegs([seg.getFromNode().getID(), seg.getToNode().getID()], seg.getID()) === true)) {
                     if (_settings.microDogLegs === 'error') {
                         WazeWrap.Alerts.error(_SCRIPT_SHORT_NAME, I18n.t('wmesu.error.MicroDogLegs'));
                         return;
@@ -525,7 +522,7 @@
                     newGeo.components[0].calculateBounds();
                     newGeo.components[1].calculateBounds();
                     W.model.actionManager.add(new UpdateSegmentGeometry(seg, seg.geometry, newGeo));
-                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${seg.attributes.id}`);
+                    logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${seg.getID()}`);
                 }
             }
         }
