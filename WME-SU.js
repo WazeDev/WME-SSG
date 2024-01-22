@@ -266,7 +266,7 @@
         if (!nodesObjArr || (nodesObjArr.length < 1))
             return false;
         const checkGeoComp = function (geoComp) {
-            const testNode4326 = WazeWrap.Geometry.ConvertTo4326(geoComp.x, geoComp.y);
+            const testNode4326 = {lon: geoComp[0], lat: geoComp[1]};
             if ((this.lon !== testNode4326.lon) || (this.lat !== testNode4326.lat)) {
                 if (distanceBetweenPoints(this.lon, this.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
                     return false;
@@ -277,12 +277,15 @@
             if (!nodesChecked.includes(nodesObjArr[idx])) {
                 nodesChecked.push(nodesObjArr[idx]);
                 const segmentsObjArr = W.model.segments.getByIds(nodesObjArr[idx].getSegmentIds()) || [],
-                    node4326 = WazeWrap.Geometry.ConvertTo4326(nodesObjArr[idx].geometry.x, nodesObjArr[idx].geometry.y);
+                    node4326 = {
+                        lon: nodesObjArr[idx].getGeometry().coordinates[0],
+                        lat: nodesObjArr[idx].getGeometry().coordinates[1]
+                    }
                 for (let idx2 = 0, len = segmentsObjArr.length; idx2 < len; idx2++) {
                     const segObj = segmentsObjArr[idx2];
                     if (!singleSegmentId
                     || (singleSegmentId && (segObj.getID() === singleSegmentId))) {
-                        if (!segObj.geometry.components.every(checkGeoComp.bind(node4326)))
+                        if (!segObj.getGeometry().coordinates.every(checkGeoComp.bind(node4326)))
                             return true;
                     }
                 }
@@ -310,10 +313,10 @@
                 const MoveNode = require('Waze/Action/MoveNode');
                 let straightened = false;
                 nodesToMoveArr.forEach((node) => {
-                    if ((Math.abs(node.geometry.x - node.nodeGeo.x) > 0.00000001) || (Math.abs(node.geometry.y - node.nodeGeo.y) > 0.00000001)) {
+                    if ((Math.abs(node.geometry.coordinates[0] - node.nodeGeo.coordinates[0]) > 0.00000001) || (Math.abs(node.geometry.coordinates[1] - node.nodeGeo.coordinates[1]) > 0.00000001)) {
                         logDebug(`${I18n.t('wmesu.log.MovingJunctionNode')} # ${node.node.getID()} `
-                        + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.x},${node.geometry.y} - `
-                        + `${I18n.t('wmesu.common.To')}: ${node.nodeGeo.x},${node.nodeGeo.y}`);
+                        + `- ${I18n.t('wmesu.common.From')}: ${node.geometry.coordinates[0]},${node.geometry.coordinates[1]} - `
+                        + `${I18n.t('wmesu.common.To')}: ${node.nodeGeo.coordinates[0]},${node.nodeGeo.coordinates[1]}`);
                         W.model.actionManager.add(new MoveNode(node.node, node.geometry, node.nodeGeo, node.connectedSegObjs, {}));
                         straightened = true;
                     }
@@ -390,13 +393,11 @@
                 allNodeIds.push(segmentSelection.segments[idx].getFromNode().getID());
                 allNodeIds.push(segmentSelection.segments[idx].getToNode().getID());
                 if (segmentSelection.segments[idx].type === 'segment') {
-                    const newGeo = segmentSelection.segments[idx].geometry.clone();
+                    const newGeo = structuredClone(segmentSelection.segments[idx].getGeometry());
                     // Remove the geometry nodes
-                    if (newGeo.components.length > 2) {
-                        newGeo.components.splice(1, newGeo.components.length - 2);
-                        newGeo.components[0].calculateBounds();
-                        newGeo.components[1].calculateBounds();
-                        segmentsToRemoveGeometryArr.push({ segment: segmentSelection.segments[idx], geometry: segmentSelection.segments[idx].geometry, newGeo });
+                    if (newGeo.coordinates.length > 2) {
+                        newGeo.coordinates.splice(1, newGeo.coordinates.length - 2);
+                        segmentsToRemoveGeometryArr.push({ segment: segmentSelection.segments[idx], geometry: segmentSelection.segments[idx].getGeometry(), newGeo });
                     }
                 }
             }
@@ -430,43 +431,42 @@
             else
                 endPointNodeIds = [segmentSelection.segments[0].getFromNode().getID(), segmentSelection.segments[(segmentSelection.segments.length - 1)].getToNode().getID()];
             const endPointNodeObjs = W.model.nodes.getByIds(endPointNodeIds),
-                endPointNode1Geo = endPointNodeObjs[0].geometry.clone(),
-                endPointNode2Geo = endPointNodeObjs[1].geometry.clone();
-            if (getDeltaDirect(endPointNode1Geo.x, endPointNode2Geo.x) < 0) {
-                let t = endPointNode1Geo.x;
-                endPointNode1Geo.x = endPointNode2Geo.x;
-                endPointNode2Geo.x = t;
-                t = endPointNode1Geo.y;
-                endPointNode1Geo.y = endPointNode2Geo.y;
-                endPointNode2Geo.y = t;
+                endPointNode1Geo = structuredClone(endPointNodeObjs[0].getGeometry()),
+                endPointNode2Geo = structuredClone(endPointNodeObjs[1].getGeometry());
+            if (getDeltaDirect(endPointNode1Geo.coordinates[0], endPointNode2Geo.coordinates[0]) < 0) {
+                let t = endPointNode1Geo.coordinates[0];
+                endPointNode1Geo.coordinates[0] = endPointNode2Geo.coordinates[0];
+                endPointNode2Geo.coordinates[0] = t;
+                t = endPointNode1Geo.coordinates[1];
+                endPointNode1Geo.coordinates[1] = endPointNode2Geo.coordinates[1];
+                endPointNode2Geo.coordinates[1] = t;
                 endPointNodeIds.push(endPointNodeIds[0]);
                 endPointNodeIds.splice(0, 1);
                 endPointNodeObjs.push(endPointNodeObjs[0]);
                 endPointNodeObjs.splice(0, 1);
             }
-            const a = endPointNode2Geo.y - endPointNode1Geo.y,
-                b = endPointNode1Geo.x - endPointNode2Geo.x,
-                c = endPointNode2Geo.x * endPointNode1Geo.y - endPointNode1Geo.x * endPointNode2Geo.y;
+            const a = endPointNode2Geo.coordinates[1] - endPointNode1Geo.coordinates[1],
+                b = endPointNode1Geo.coordinates[0] - endPointNode2Geo.coordinates[0],
+                c = endPointNode2Geo.coordinates[0] * endPointNode1Geo.coordinates[1] - endPointNode1Geo.coordinates[0] * endPointNode2Geo.coordinates[1];
             distinctNodes.forEach((nodeId) => {
                 if (!endPointNodeIds.includes(nodeId)) {
                     const node = W.model.nodes.getObjectById(nodeId),
-                        nodeGeo = node.geometry.clone();
-                    const d = nodeGeo.y * a - nodeGeo.x * b,
+                        nodeGeo = structuredClone(node.getGeometry());
+                    const d = nodeGeo.coordinates[1] * a - nodeGeo.coordinates[0] * b,
                         r1 = getIntersectCoord(a, b, c, d);
-                    nodeGeo.x = r1.x;
-                    nodeGeo.y = r1.y;
-                    nodeGeo.calculateBounds();
+                    nodeGeo.coordinates[0] = r1.x;
+                    nodeGeo.coordinates[1] = r1.y;
                     const connectedSegObjs = {};
                     for (let idx = 0, { length } = node.getAttribute('segIDs'); idx < length; idx++) {
                         const segId = node.getAttribute('segIDs')[idx];
-                        connectedSegObjs[segId] = W.model.segments.getObjectById(segId).geometry.clone();
+                        connectedSegObjs[segId] = structuredClone(W.model.segments.getObjectById(segId).getGeometry());
                     }
-                    const fromNodeLonLat = WazeWrap.Geometry.ConvertTo4326(node.geometry.x, node.geometry.y),
-                        toNodeLonLat = WazeWrap.Geometry.ConvertTo4326(r1.x, r1.y);
-                    if (distanceBetweenPoints(fromNodeLonLat.lon, fromNodeLonLat.lat, toNodeLonLat.lon, toNodeLonLat.lat, 'meters') > 10)
+                    const fromNodeLonLat = {x: node.getGeometry().coordinates[0], y: node.getGeometry().coordinates[1]},
+                        toNodeLonLat = r1;
+                    if (distanceBetweenPoints(fromNodeLonLat.x, fromNodeLonLat.y, toNodeLonLat.x, toNodeLonLat.y, 'meters') > 10)
                         longMove = true;
                     nodesToMoveArr.push({
-                        node, geometry: node.geometry, nodeGeo, connectedSegObjs
+                        node, geometry: node.getGeometry(), nodeGeo, connectedSegObjs
                     });
                 }
             });
@@ -514,14 +514,12 @@
                     }
                 }
                 microDogLegsContinue = true;
-                const newGeo = seg.geometry.clone();
+                const newGeo = structuredClone(seg.getGeometry());
                 // Remove the geometry nodes
-                if (newGeo.components.length > 2) {
+                if (newGeo.coordinates.length > 2) {
                     const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
-                    newGeo.components.splice(1, newGeo.components.length - 2);
-                    newGeo.components[0].calculateBounds();
-                    newGeo.components[1].calculateBounds();
-                    W.model.actionManager.add(new UpdateSegmentGeometry(seg, seg.geometry, newGeo));
+                    newGeo.coordinates.splice(1, newGeo.coordinates.length - 2);
+                    W.model.actionManager.add(new UpdateSegmentGeometry(seg, seg.getGeometry(), newGeo, {createNodes: true, snappedFeatures: undefined}));
                     logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${seg.getID()}`);
                 }
             }
