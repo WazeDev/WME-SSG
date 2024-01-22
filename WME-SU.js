@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME Straighten Up! (beta)
 // @namespace   https://greasyfork.org/users/166843
-// @version     2023.08.02.01
+// @version     2024.01.22.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author      dBsooner
 // @match       http*://*.waze.com/*editor*
@@ -31,7 +31,7 @@
         _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzUxYzJWeUxtcHo=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['CHANGE: WME release v2.180-7-geb388e8d3 compatibility.'],
+        _SCRIPT_VERSION_CHANGES = ['CHANGE: Comaptibility with recent WME releases. (Thank you jangliss)'],
         _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
         _LOAD_BEGIN_TIME = performance.now(),
         _elems = {
@@ -266,7 +266,7 @@
         if (!nodesObjArr || (nodesObjArr.length < 1))
             return false;
         const checkGeoComp = function (geoComp) {
-            const testNode4326 = {lon: geoComp[0], lat: geoComp[1]};
+            const testNode4326 = { lon: geoComp[0], lat: geoComp[1] };
             if ((this.lon !== testNode4326.lon) || (this.lat !== testNode4326.lat)) {
                 if (distanceBetweenPoints(this.lon, this.lat, testNode4326.lon, testNode4326.lat, 'meters') < 2)
                     return false;
@@ -280,7 +280,7 @@
                     node4326 = {
                         lon: nodesObjArr[idx].getGeometry().coordinates[0],
                         lat: nodesObjArr[idx].getGeometry().coordinates[1]
-                    }
+                    };
                 for (let idx2 = 0, len = segmentsObjArr.length; idx2 < len; idx2++) {
                     const segObj = segmentsObjArr[idx2];
                     if (!singleSegmentId
@@ -434,11 +434,11 @@
                 endPointNode1Geo = structuredClone(endPointNodeObjs[0].getGeometry()),
                 endPointNode2Geo = structuredClone(endPointNodeObjs[1].getGeometry());
             if (getDeltaDirect(endPointNode1Geo.coordinates[0], endPointNode2Geo.coordinates[0]) < 0) {
-                let t = endPointNode1Geo.coordinates[0];
-                endPointNode1Geo.coordinates[0] = endPointNode2Geo.coordinates[0];
+                let [t] = endPointNode1Geo.coordinates;
+                [endPointNode1Geo.coordinates[0]] = endPointNode2Geo.coordinates;
                 endPointNode2Geo.coordinates[0] = t;
-                t = endPointNode1Geo.coordinates[1];
-                endPointNode1Geo.coordinates[1] = endPointNode2Geo.coordinates[1];
+                [, t] = endPointNode1Geo.coordinates;
+                [, endPointNode1Geo.coordinates[1]] = endPointNode2Geo.coordinates;
                 endPointNode2Geo.coordinates[1] = t;
                 endPointNodeIds.push(endPointNodeIds[0]);
                 endPointNodeIds.splice(0, 1);
@@ -461,7 +461,7 @@
                         const segId = node.getAttribute('segIDs')[idx];
                         connectedSegObjs[segId] = structuredClone(W.model.segments.getObjectById(segId).getGeometry());
                     }
-                    const fromNodeLonLat = {x: node.getGeometry().coordinates[0], y: node.getGeometry().coordinates[1]},
+                    const fromNodeLonLat = { x: node.getGeometry().coordinates[0], y: node.getGeometry().coordinates[1] },
                         toNodeLonLat = r1;
                     if (distanceBetweenPoints(fromNodeLonLat.x, fromNodeLonLat.y, toNodeLonLat.x, toNodeLonLat.y, 'meters') > 10)
                         longMove = true;
@@ -519,7 +519,7 @@
                 if (newGeo.coordinates.length > 2) {
                     const UpdateSegmentGeometry = require('Waze/Action/UpdateSegmentGeometry');
                     newGeo.coordinates.splice(1, newGeo.coordinates.length - 2);
-                    W.model.actionManager.add(new UpdateSegmentGeometry(seg, seg.getGeometry(), newGeo, {createNodes: true, snappedFeatures: undefined}));
+                    W.model.actionManager.add(new UpdateSegmentGeometry(seg, seg.getGeometry(), newGeo, { createNodes: true, snappedFeatures: undefined }));
                     logDebug(`${I18n.t('wmesu.log.RemovedGeometryNodes')} # ${seg.getID()}`);
                 }
             }
