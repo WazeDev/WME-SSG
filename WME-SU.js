@@ -250,12 +250,15 @@
     function distanceBetweenPoints(lon1, lat1, lon2, lat2, measurement) {
     // eslint-disable-next-line no-nested-ternary
         const multiplier = measurement === 'meters' ? 1000 : measurement === 'miles' ? 0.621371192237334 : measurement === 'feet' ? 3280.8398950131 : 1;
-        lon1 *= 0.017453292519943295; // 0.017453292519943295 = Math.PI / 180
-        lat1 *= 0.017453292519943295;
-        lon2 *= 0.017453292519943295;
-        lat2 *= 0.017453292519943295;
-        // 12742 = Diam of earth in km (2 * 6371)
-        return 12742 * Math.asin(Math.sqrt(((1 - Math.cos(lat2 - lat1)) + (1 - Math.cos(lon2 - lon1)) * Math.cos(lat1) * Math.cos(lat2)) / 2)) * multiplier;
+        const R = 6371; // KM
+        const φ1 = lat1 * Math.PI/180;
+        const φ2 = lat2 * Math.PI/180;
+        const Δφ = (lat2-lat1) * Math.PI/180;
+        const Δλ = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const d = R * c;
+        return d * multiplier;
     }
 
     function checkForMicroDogLegs(distinctNodes, singleSegmentId) {
