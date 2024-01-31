@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME Straighten Up!
 // @namespace   https://greasyfork.org/users/166843
-// @version     2024.01.22.01
+// @version     2024.01.31.01
 // @description Straighten selected WME segment(s) by aligning along straight line between two end points and removing geometry nodes.
 // @author      dBsooner
 // @match       http*://*.waze.com/*editor*
@@ -31,7 +31,7 @@
         _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTRPRE0xTUMxM2JXVXRjM1J5WVdsbmFIUmxiaTExY0MxaVpYUmhMMk52WkdVdlYwMUZKVEl3VTNSeVlXbG5hSFJsYmlVeU1GVndJU1V5TUNoaVpYUmhLUzUxYzJWeUxtcHo=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['CHANGE: Compatibility with recent WME releases. (Thank you jangliss)'],
+        _SCRIPT_VERSION_CHANGES = ['BUGFIX: Check for micro dog leg (mDL)'],
         _DEBUG = /[βΩ]/.test(_SCRIPT_SHORT_NAME),
         _LOAD_BEGIN_TIME = performance.now(),
         _elems = {
@@ -250,12 +250,15 @@
     function distanceBetweenPoints(lon1, lat1, lon2, lat2, measurement) {
     // eslint-disable-next-line no-nested-ternary
         const multiplier = measurement === 'meters' ? 1000 : measurement === 'miles' ? 0.621371192237334 : measurement === 'feet' ? 3280.8398950131 : 1;
-        lon1 *= 0.017453292519943295; // 0.017453292519943295 = Math.PI / 180
-        lat1 *= 0.017453292519943295;
-        lon2 *= 0.017453292519943295;
-        lat2 *= 0.017453292519943295;
-        // 12742 = Diam of earth in km (2 * 6371)
-        return 12742 * Math.asin(Math.sqrt(((1 - Math.cos(lat2 - lat1)) + (1 - Math.cos(lon2 - lon1)) * Math.cos(lat1) * Math.cos(lat2)) / 2)) * multiplier;
+        const R = 6371; // KM
+        const φ1 = lat1 * (Math.PI / 180);
+        const φ2 = lat2 * (Math.PI / 180);
+        const Δφ = (lat2 - lat1) * (Math.PI / 180);
+        const Δλ = (lon2 - lon1) * (Math.PI / 180);
+        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const d = R * c;
+        return d * multiplier;
     }
 
     function checkForMicroDogLegs(distinctNodes, singleSegmentId) {
